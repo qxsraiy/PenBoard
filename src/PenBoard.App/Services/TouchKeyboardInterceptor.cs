@@ -21,6 +21,7 @@ public sealed class TouchKeyboardInterceptor : IDisposable
     private Func<IntPtr>? _overlayHandle;
     private long _lastTouchTick;
     private long _lastTriggerTick;
+    private long _lastHideTick;
     private bool _keyboardWasVisible;
     private bool _disposed;
 
@@ -28,7 +29,7 @@ public sealed class TouchKeyboardInterceptor : IDisposable
     {
         _timer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(120)
+            Interval = TimeSpan.FromMilliseconds(250)
         };
         _timer.Tick += Timer_Tick;
     }
@@ -52,6 +53,13 @@ public sealed class TouchKeyboardInterceptor : IDisposable
 
     public bool HideTouchKeyboard()
     {
+        var now = Environment.TickCount64;
+        if (now - _lastHideTick < 1500)
+        {
+            return false;
+        }
+        _lastHideTick = now;
+
         var hidden = false;
         try
         {

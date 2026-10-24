@@ -385,7 +385,6 @@ public partial class MainWindow : Window, IDisposable
         Logger.Log("HideOverlay");
         Hide();
         _isOpen = false;
-        _isRecognizing = false;
         _savePromptVisible = false;
         _screenshot = null;
         BackgroundImage.Source = null;
@@ -405,7 +404,6 @@ public partial class MainWindow : Window, IDisposable
     {
         _recognitionTimer.Stop();
         _candidateTimer.Stop();
-        _isRecognizing = false;
         _savePromptVisible = false;
         _pendingStrokes = null;
         _pendingCandidates = Array.Empty<string>();

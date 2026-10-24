@@ -13,9 +13,11 @@ public enum RecognitionLanguage
 
 public sealed class InkRecognitionService
 {
-    private readonly InkRecognizerContainer? _recognizer;
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private InkRecognizerContainer? _recognizer;
     private IReadOnlyList<InkRecognizer> _recognizers = Array.Empty<InkRecognizer>();
     private RecognitionLanguage _language = RecognitionLanguage.Chinese;
+    private RecognitionLanguage? _pendingLanguage;
 
     public InkRecognitionService()
     {
@@ -39,6 +41,26 @@ public sealed class InkRecognitionService
     public bool IsAvailable => _recognizer is not null && _recognizers.Count > 0;
 
     public bool SetLanguage(RecognitionLanguage language)
+    {
+        _language = language;
+        if (!_gate.Wait(0))
+        {
+            _pendingLanguage = language;
+            Logger.Log($"SetLanguage: recognition busy, deferring {language}.");
+            return true;
+        }
+
+        try
+        {
+            return SetLanguageCore(language);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private bool SetLanguageCore(RecognitionLanguage language)
     {
         _language = language;
         if (_recognizer is null || _recognizers.Count == 0)
@@ -83,11 +105,32 @@ public sealed class InkRecognitionService
 
     public async Task<IReadOnlyList<string>> RecognizeAsync(StrokeCollection strokes)
     {
-        if (_recognizer is null || strokes.Count == 0)
+        if (strokes.Count == 0 || _recognizer is null)
         {
             return Array.Empty<string>();
         }
 
+        // The WinRT recognizer is not agile and rejects overlapping calls with
+        // "Operation is not valid due to the current state of the object".
+        // Serialize recognition and language changes.
+        await _gate.WaitAsync();
+        try
+        {
+            return await RecognizeCoreAsync(strokes);
+        }
+        finally
+        {
+            if (_pendingLanguage is { } pending)
+            {
+                _pendingLanguage = null;
+                SetLanguageCore(pending);
+            }
+            _gate.Release();
+        }
+    }
+
+    private async Task<IReadOnlyList<string>> RecognizeCoreAsync(StrokeCollection strokes)
+    {
         try
         {
             var container = new InkStrokeContainer();
@@ -116,7 +159,7 @@ public sealed class InkRecognitionService
                 return Array.Empty<string>();
             }
 
-            var results = await _recognizer.RecognizeAsync(container, InkRecognitionTarget.All);
+            var results = await _recognizer!.RecognizeAsync(container, InkRecognitionTarget.All);
             var candidates = new List<string>();
             if (results is not null)
             {
@@ -136,7 +179,30 @@ public sealed class InkRecognitionService
         catch (Exception ex)
         {
             Logger.Log("RecognizeAsync: " + ex);
+
+            // If a previous recognition got into a bad state, rebuild the
+            // container so the next attempt can recover without restarting.
+            if (ex is InvalidOperationException)
+            {
+                RecreateRecognizerCore();
+            }
+
             return Array.Empty<string>();
+        }
+    }
+
+    private void RecreateRecognizerCore()
+    {
+        try
+        {
+            _recognizer = new InkRecognizerContainer();
+            _recognizers = _recognizer.GetRecognizers().ToList();
+            SetLanguageCore(_language);
+            Logger.Log("Recognizer recreated after invalid state.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log("RecreateRecognizer: " + ex);
         }
     }
 

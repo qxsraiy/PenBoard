@@ -14,6 +14,7 @@
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Icon Id="PenBoardIcon" SourceFile="app.ico" />
+    <Binary Id="PenBoardBanner" SourceFile="banner.bmp" />
     <Property Id="ARPPRODUCTICON" Value="PenBoardIcon" />
 
     <StandardDirectory Id="LocalAppDataFolder">
@@ -71,14 +72,12 @@
       </Component>
     </DirectoryRef>
 
-    <!-- Stop the tray process before replacing or removing files. -->
     <CustomAction Id="StopPenBoard"
                   Directory="SystemFolder"
                   ExeCommand="taskkill.exe /f /im PenBoard.exe"
                   Execute="immediate"
                   Return="ignore" />
 
-    <!-- Remove the old ZIP-installed app directory and old root Start Menu shortcut. -->
     <CustomAction Id="CleanupOldZipInstall"
                   Directory="SystemFolder"
                   ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'PenBoard') -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Programs')) 'PenBoard.lnk') -Force -ErrorAction SilentlyContinue&quot;"
@@ -86,7 +85,6 @@
                   Impersonate="yes"
                   Return="ignore" />
 
-    <!-- Signed MSI normally does not propagate MOTW, but keep this for local/unsigned builds. -->
     <CustomAction Id="UnblockInstalledFiles"
                   Directory="SystemFolder"
                   ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;Get-ChildItem -LiteralPath '[INSTALLFOLDER]' -Recurse -File | Unblock-File&quot;"
@@ -94,7 +92,6 @@
                   Impersonate="yes"
                   Return="ignore" />
 
-    <!-- User explicitly chose: remove settings.json and logs on uninstall. -->
     <CustomAction Id="RemoveUserDataOnUninstall"
                   Directory="SystemFolder"
                   ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;Remove-Item -LiteralPath (Join-Path $env:APPDATA 'PenBoard') -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'PenBoard') -Recurse -Force -ErrorAction SilentlyContinue&quot;"
@@ -115,111 +112,169 @@
       <Property Id="SELECTED_LANG" Value="zh" />
 
       <Dialog Id="LanguageDlg" Width="370" Height="270" Title="PenBoard 0.1.6 Setup">
-        <Control Id="Title" Type="Text" X="20" Y="20" Width="330" Height="30"
-                 Transparent="yes" NoPrefix="yes" Text="PenBoard 0.1.6 安装 / Setup" />
-        <Control Id="Description" Type="Text" X="20" Y="65" Width="330" Height="30"
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="58"
+                 TabSkip="no" Text="PenBoardBanner" />
+        <Control Id="Title" Type="Text" X="20" Y="72" Width="330" Height="24"
+                 Transparent="yes" NoPrefix="yes" Text="PenBoard 0.1.6" />
+        <Control Id="Description" Type="Text" X="20" Y="105" Width="330" Height="24"
                  Transparent="yes" NoPrefix="yes"
-                 Text="请选择安装语言 / Select setup language" />
-        <Control Id="Chinese" Type="PushButton" X="55" Y="130" Width="110" Height="30"
+                 Text="选择安装语言 / Select setup language" />
+        <Control Id="Chinese" Type="PushButton" X="55" Y="150" Width="110" Height="30"
                  Default="yes" Text="中文">
           <Publish Property="SELECTED_LANG" Value="zh" Order="1" />
           <Publish Event="NewDialog" Value="WelcomeDlg" Order="2" />
         </Control>
-        <Control Id="English" Type="PushButton" X="205" Y="130" Width="110" Height="30"
+        <Control Id="English" Type="PushButton" X="205" Y="150" Width="110" Height="30"
                  Text="English">
           <Publish Property="SELECTED_LANG" Value="en" Order="1" />
           <Publish Event="NewDialog" Value="WelcomeDlg" Order="2" />
         </Control>
-        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
-                 Cancel="yes" Text="取消 / Cancel">
+        <Control Id="CancelZh" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="取消" Hidden="yes"
+                 ShowCondition="SELECTED_LANG=&quot;zh&quot;">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+        <Control Id="CancelEn" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="Cancel" Hidden="yes"
+                 ShowCondition="SELECTED_LANG=&quot;en&quot;">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
 
       <Dialog Id="WelcomeDlg" Width="370" Height="270" Title="PenBoard 0.1.6 Setup">
-        <Control Id="TitleZh" Type="Text" X="20" Y="20" Width="330" Height="30"
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="58"
+                 TabSkip="no" Text="PenBoardBanner" />
+        <Control Id="TitleZh" Type="Text" X="20" Y="72" Width="330" Height="24"
                  Transparent="yes" NoPrefix="yes" Hidden="yes" Text="欢迎使用 PenBoard 安装程序"
                  ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
-        <Control Id="TitleEn" Type="Text" X="20" Y="20" Width="330" Height="30"
+        <Control Id="TitleEn" Type="Text" X="20" Y="72" Width="330" Height="24"
                  Transparent="yes" NoPrefix="yes" Hidden="yes" Text="Welcome to PenBoard Setup"
                  ShowCondition="SELECTED_LANG=&quot;en&quot;" />
-        <Control Id="DescZh" Type="Text" X="20" Y="70" Width="330" Height="120"
+        <Control Id="DescZh" Type="Text" X="20" Y="110" Width="330" Height="110"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
                  Text="将安装 PenBoard 0.1.6 到：&#xA;%LOCALAPPDATA%\Programs\PenBoard&#xA;&#xA;不需要管理员权限。&#xA;卸载时会删除设置和日志，保留“图片\PenBoard”。"
                  ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
-        <Control Id="DescEn" Type="Text" X="20" Y="70" Width="330" Height="120"
+        <Control Id="DescEn" Type="Text" X="20" Y="110" Width="330" Height="110"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
                  Text="This will install PenBoard 0.1.6 to:&#xA;%LOCALAPPDATA%\Programs\PenBoard&#xA;&#xA;No administrator rights are required.&#xA;Uninstall removes settings and logs, but keeps Pictures\PenBoard."
                  ShowCondition="SELECTED_LANG=&quot;en&quot;" />
-        <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17"
-                 Default="yes" Text="安装 / Install">
+        <Control Id="InstallZh" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="安装" Hidden="yes"
+                 ShowCondition="SELECTED_LANG=&quot;zh&quot;">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
-        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
-                 Text="返回 / Back">
+        <Control Id="InstallEn" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="Install" Hidden="yes"
+                 ShowCondition="SELECTED_LANG=&quot;en&quot;">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="BackZh" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="返回" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;zh&quot;">
           <Publish Event="NewDialog" Value="LanguageDlg" />
         </Control>
-        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
-                 Cancel="yes" Text="取消 / Cancel">
+        <Control Id="BackEn" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="Back" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;en&quot;">
+          <Publish Event="NewDialog" Value="LanguageDlg" />
+        </Control>
+        <Control Id="CancelZh" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="取消" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;zh&quot;">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+        <Control Id="CancelEn" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="Cancel" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;en&quot;">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
 
       <Dialog Id="ProgressDlg" Width="370" Height="270" Title="PenBoard Setup"
               Modeless="yes">
-        <Control Id="Title" Type="Text" X="20" Y="20" Width="330" Height="30"
-                 Transparent="yes" NoPrefix="yes" Text="正在安装 / Installing" />
-        <Control Id="Wait" Type="Text" X="20" Y="65" Width="330" Height="20"
-                 Transparent="yes" NoPrefix="yes" Text="请稍候 / Please wait" />
-        <Control Id="ActionText" Type="Text" X="20" Y="100" Width="330" Height="15">
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="58"
+                 TabSkip="no" Text="PenBoardBanner" />
+        <Control Id="TitleZh" Type="Text" X="20" Y="72" Width="330" Height="24"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="正在安装 PenBoard"
+                 ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
+        <Control Id="TitleEn" Type="Text" X="20" Y="72" Width="330" Height="24"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="Installing PenBoard"
+                 ShowCondition="SELECTED_LANG=&quot;en&quot;" />
+        <Control Id="WaitZh" Type="Text" X="20" Y="105" Width="330" Height="20"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="请稍候…"
+                 ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
+        <Control Id="WaitEn" Type="Text" X="20" Y="105" Width="330" Height="20"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="Please wait…"
+                 ShowCondition="SELECTED_LANG=&quot;en&quot;" />
+        <Control Id="ActionText" Type="Text" X="20" Y="140" Width="330" Height="15">
           <Subscribe Event="ActionText" Attribute="Text" />
         </Control>
-        <Control Id="ProgressBar" Type="ProgressBar" X="20" Y="120" Width="330" Height="10"
+        <Control Id="ProgressBar" Type="ProgressBar" X="20" Y="160" Width="330" Height="10"
                  ProgressBlocks="yes" Text="%">
           <Subscribe Event="SetProgress" Attribute="Progress" />
         </Control>
-        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
-                 Cancel="yes" Text="取消 / Cancel">
+        <Control Id="CancelZh" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="取消" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;zh&quot;">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+        <Control Id="CancelEn" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="Cancel" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;en&quot;">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
 
       <Dialog Id="ExitDialog" Width="370" Height="270" Title="PenBoard 0.1.6 Setup">
-        <Control Id="TitleZh" Type="Text" X="20" Y="20" Width="330" Height="30"
+        <Control Id="Banner" Type="Bitmap" X="0" Y="0" Width="370" Height="58"
+                 TabSkip="no" Text="PenBoardBanner" />
+        <Control Id="TitleZh" Type="Text" X="20" Y="72" Width="330" Height="24"
                  Transparent="yes" NoPrefix="yes" Hidden="yes" Text="PenBoard 安装完成"
                  ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
-        <Control Id="TitleEn" Type="Text" X="20" Y="20" Width="330" Height="30"
+        <Control Id="TitleEn" Type="Text" X="20" Y="72" Width="330" Height="24"
                  Transparent="yes" NoPrefix="yes" Hidden="yes" Text="PenBoard Setup Complete"
                  ShowCondition="SELECTED_LANG=&quot;en&quot;" />
-        <Control Id="DescZh" Type="Text" X="20" Y="80" Width="330" Height="80"
+        <Control Id="DescZh" Type="Text" X="20" Y="110" Width="330" Height="70"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
                  Text="现在可以双击笔按钮，或按 Ctrl+Alt+P 测试。"
                  ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
-        <Control Id="DescEn" Type="Text" X="20" Y="80" Width="330" Height="80"
+        <Control Id="DescEn" Type="Text" X="20" Y="110" Width="330" Height="70"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
                  Text="You can now double-tap the pen button or press Ctrl+Alt+P to test."
                  ShowCondition="SELECTED_LANG=&quot;en&quot;" />
-        <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
-                 Default="yes" Text="完成 / Finish">
+        <Control Id="FinishZh" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="完成" Hidden="yes"
+                 ShowCondition="SELECTED_LANG=&quot;zh&quot;">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="FinishEn" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="Finish" Hidden="yes"
+                 ShowCondition="SELECTED_LANG=&quot;en&quot;">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
 
       <Dialog Id="CancelDlg" Width="260" Height="120" Title="PenBoard Setup">
-        <Control Id="Text" Type="Text" X="15" Y="15" Width="230" Height="40"
-                 Transparent="yes" NoPrefix="yes"
-                 Text="确定取消安装？&#xA;Cancel setup?" />
-        <Control Id="Yes" Type="PushButton" X="100" Y="80" Width="60" Height="18"
-                 Default="yes" Text="是 / Yes">
+        <Control Id="TextZh" Type="Text" X="15" Y="18" Width="230" Height="30"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="确定取消安装？" ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
+        <Control Id="TextEn" Type="Text" X="15" Y="18" Width="230" Height="30"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="Cancel setup?" ShowCondition="SELECTED_LANG=&quot;en&quot;" />
+        <Control Id="YesZh" Type="PushButton" X="100" Y="80" Width="60" Height="18"
+                 Default="yes" Text="是" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;zh&quot;">
           <Publish Event="EndDialog" Value="Cancel" />
         </Control>
-        <Control Id="No" Type="PushButton" X="170" Y="80" Width="60" Height="18"
-                 Cancel="yes" Text="否 / No">
+        <Control Id="YesEn" Type="PushButton" X="100" Y="80" Width="60" Height="18"
+                 Default="yes" Text="Yes" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;en&quot;">
+          <Publish Event="EndDialog" Value="Cancel" />
+        </Control>
+        <Control Id="NoZh" Type="PushButton" X="170" Y="80" Width="60" Height="18"
+                 Cancel="yes" Text="否" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;zh&quot;">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="NoEn" Type="PushButton" X="170" Y="80" Width="60" Height="18"
+                 Cancel="yes" Text="No" Hidden="yes" ShowCondition="SELECTED_LANG=&quot;en&quot;">
           <Publish Event="EndDialog" Value="Return" />
         </Control>
       </Dialog>
 
       <InstallUISequence>
+        <Custom Action="StopPenBoard" Before="ProgressDlg" />
         <Show Dialog="LanguageDlg" Before="ProgressDlg" Condition="NOT Installed" />
         <Show Dialog="ProgressDlg" Before="ExecuteAction" Condition="NOT Installed OR REMOVE" />
         <Show Dialog="ExitDialog" OnExit="success" Condition="NOT Installed OR REMOVE" />
