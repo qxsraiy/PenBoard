@@ -32,6 +32,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly TextInjector _injector = new();
     private readonly ScreenCapture _screenCapture = new();
     private readonly Exporter _exporter = new();
+    private readonly UpdateService _updateService = new();
     private readonly DispatcherTimer _recognitionTimer;
     private readonly DispatcherTimer _candidateTimer;
     private readonly Stack<Stroke> _undoStack = new();
@@ -44,6 +45,7 @@ public partial class MainWindow : Window, IDisposable
     private OverlayMode _mode = OverlayMode.Text;
     private bool _isOpen;
     private bool _opening;
+    private bool _targetSupportsText;
     private bool _savePromptVisible;
     private bool _formatPromptFromClose;
     private long _lastToggleTick;
@@ -98,7 +100,8 @@ public partial class MainWindow : Window, IDisposable
             OnDebugLoggingChanged,
             OpenLogFolder,
             _settings.AutoReplaceTouchKeyboard,
-            OnAutoKeyboardChanged);
+            OnAutoKeyboardChanged,
+            CheckForUpdates);
 
         _touchInterceptor = new TouchKeyboardInterceptor
         {
@@ -185,6 +188,7 @@ public partial class MainWindow : Window, IDisposable
             }
 
             _mode = context.IsText ? OverlayMode.Text : OverlayMode.Annotation;
+            _targetSupportsText = context.IsText;
             UpdateSafeInsets();
             _screenshot = null;
             if (_mode == OverlayMode.Annotation)
@@ -516,11 +520,14 @@ public partial class MainWindow : Window, IDisposable
 
     private void UpdateModeUi()
     {
+        var blue = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x88, 0xE5));
+        var red = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE5, 0x39, 0x35));
+        var grey = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x55, 0x55, 0x55));
+        var normalBorder = new SolidColorBrush(System.Windows.Media.Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
+
         if (_mode == OverlayMode.Text)
         {
             ModeText.Text = "输入模式";
-            HintText.Text = "写完后停笔自动识别；双击笔键关闭";
-            ModeButton.Content = "批注";
             SaveButton.Visibility = Visibility.Collapsed;
             BackspaceButton.Visibility = Visibility.Visible;
             LanguageButton.Visibility = Visibility.Visible;
@@ -528,17 +535,39 @@ public partial class MainWindow : Window, IDisposable
             // A fully transparent layered window can be click-through. Keep one
             // alpha step so the ink canvas still receives the pen/mouse.
             Root.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(1, 0, 0, 0));
+
+            SwitchInputButton.IsEnabled = true;
+            SwitchInputButton.Background = blue;
+            SwitchInputButton.BorderBrush = Brushes.White;
+            SwitchInputButton.BorderThickness = new Thickness(2);
+            SwitchInputButton.ToolTip = "当前：输入模式";
+
+            SwitchAnnotationButton.IsEnabled = true;
+            SwitchAnnotationButton.Background = red;
+            SwitchAnnotationButton.BorderBrush = normalBorder;
+            SwitchAnnotationButton.BorderThickness = new Thickness(1);
+            SwitchAnnotationButton.ToolTip = "切换到批注模式";
         }
         else
         {
             ModeText.Text = "批注模式";
-            HintText.Text = "再次双击笔键；关闭时选择是否保存";
-            ModeButton.Content = "输入";
             SaveButton.Visibility = Visibility.Visible;
             BackspaceButton.Visibility = Visibility.Collapsed;
             LanguageButton.Visibility = Visibility.Collapsed;
             BackgroundImage.Source = _screenshot;
             Root.Background = Brushes.Black;
+
+            SwitchInputButton.IsEnabled = _targetSupportsText;
+            SwitchInputButton.Background = _targetSupportsText ? blue : grey;
+            SwitchInputButton.BorderBrush = _targetSupportsText ? Brushes.White : normalBorder;
+            SwitchInputButton.BorderThickness = new Thickness(_targetSupportsText ? 2 : 1);
+            SwitchInputButton.ToolTip = _targetSupportsText ? "切换到输入模式" : "未检测到输入框";
+
+            SwitchAnnotationButton.IsEnabled = true;
+            SwitchAnnotationButton.Background = red;
+            SwitchAnnotationButton.BorderBrush = Brushes.White;
+            SwitchAnnotationButton.BorderThickness = new Thickness(2);
+            SwitchAnnotationButton.ToolTip = "当前：批注模式";
         }
     }
 
@@ -591,6 +620,17 @@ public partial class MainWindow : Window, IDisposable
         {
             Logger.Log("OpenLogFolder: " + ex);
         }
+    }
+
+    private async void CheckForUpdates()
+    {
+        if (_isOpen)
+        {
+            System.Windows.MessageBox.Show("请先关闭全屏手写层，再检查更新。", "检查更新");
+            return;
+        }
+
+        await _updateService.CheckAndInstallAsync();
     }
 
     private void OnDebugLoggingChanged(bool enabled)
@@ -958,59 +998,72 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private async void Mode_Click(object sender, RoutedEventArgs e)
+    private async void SwitchAnnotation_Click(object sender, RoutedEventArgs e)
     {
+        if (!_isOpen || _mode == OverlayMode.Annotation)
+        {
+            return;
+        }
+
+        Hide();
+        await Task.Delay(140);
         if (!_isOpen)
         {
             return;
         }
 
-        if (_mode == OverlayMode.Text)
+        try
         {
-            Hide();
-            await Task.Delay(140);
-            if (!_isOpen)
-            {
-                return;
-            }
-
-            try
-            {
-                _screenshot = _screenCapture.CapturePrimaryScreen();
-            }
-            catch (Exception ex)
-            {
-                Logger.Log("Switch to annotation capture: " + ex);
-                _screenshot = null;
-            }
-
-            _mode = OverlayMode.Annotation;
-            UpdateModeUi();
-            ShowOverlay();
+            _screenshot = _screenCapture.CapturePrimaryScreen();
         }
-        else
+        catch (Exception ex)
         {
-            var probeTarget = _targetHwnd;
-            if (probeTarget == IntPtr.Zero || !NativeMethods.IsWindow(probeTarget))
-            {
-                probeTarget = NativeMethods.GetForegroundWindow();
-            }
-
-            Logger.Log($"Mode_Click: annotation->text, probeTarget=0x{probeTarget.ToInt64():X}");
-            var context = await _caretProbe.ProbeAsync(probeTarget, 350);
-            Logger.Log($"Mode_Click: text={context.IsText}, source={context.Source}, detail={context.Detail}");
-            if (!context.IsText)
-            {
-                StatusText.Text = "当前没有输入光标，保持批注模式";
-                return;
-            }
-
-            _targetHwnd = probeTarget;
-            _mode = OverlayMode.Text;
+            Logger.Log("Switch to annotation capture: " + ex);
             _screenshot = null;
-            UpdateModeUi();
-            _touchInterceptor.HideTouchKeyboard(true);
         }
+
+        _mode = OverlayMode.Annotation;
+        UpdateModeUi();
+        ShowOverlay();
+    }
+
+    private async void SwitchInput_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isOpen || _mode == OverlayMode.Text)
+        {
+            return;
+        }
+
+        if (!_targetSupportsText)
+        {
+            StatusText.Text = "未检测到输入框";
+            UpdateModeUi();
+            return;
+        }
+
+        var probeTarget = _targetHwnd;
+        if (probeTarget == IntPtr.Zero || !NativeMethods.IsWindow(probeTarget))
+        {
+            probeTarget = NativeMethods.GetForegroundWindow();
+        }
+
+        Logger.Log($"SwitchInput: probeTarget=0x{probeTarget.ToInt64():X}");
+        var context = await _caretProbe.ProbeAsync(probeTarget, 350);
+        Logger.Log($"SwitchInput: text={context.IsText}, source={context.Source}, detail={context.Detail}");
+        if (!context.IsText)
+        {
+            _targetSupportsText = false;
+            StatusText.Text = "未检测到输入框";
+            UpdateModeUi();
+            return;
+        }
+
+        _targetHwnd = probeTarget;
+        _targetSupportsText = true;
+        _mode = OverlayMode.Text;
+        _screenshot = null;
+        UpdateModeUi();
+        _touchInterceptor.HideTouchKeyboard(true);
     }
 
     private void Pen_Click(object sender, RoutedEventArgs e)

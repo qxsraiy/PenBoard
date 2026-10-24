@@ -9,19 +9,28 @@ Windows ARM64 触控笔全屏手写 / 屏幕批注工具。
 - 支持涂抹擦、整笔擦、撤销、颜色、粗细。
 - 托盘调试日志、实验性的系统手写板替换。
 
-当前版本：**v0.1.8**  
+当前版本：**v0.1.9**  
 发布页：https://github.com/qxsraiy/PenBoard/releases
 
 > 这是未签名构建。SmartScreen 仍可能提示；代码签名证书需要企业/个人主体注册审核，本轮未做。
 
+## 0.1.9 修复
+
+- 托盘右键最下面新增“检查更新”：读取 GitHub 最新 Release，比较版本号，下载 ARM64 MSI 并覆盖安装。
+- 顶部只显示“输入模式”/“批注模式”；底栏改为“切换输入”（蓝色）和“切换批注”（红色）。
+- 没有输入光标时，“切换输入”灰色禁用，悬停提示“未检测到输入框”。
+- “保存”只保存当前状态，不关闭，保存后继续写；“关闭”才走“保存并关闭 / 舍弃并关闭 / 取消”，保存并关闭后再选 PNG/PDF。
+- 自动化保存系统键盘出现前的前台窗口作为目标，避免 OSK 抢焦点后无法唤出 PenBoard。
+- 安装器改用原生 SetupHelper，彻底隐藏 PowerShell/终端窗口。
+- 每次发布递增版本号；MSI 使用稳定 UpgradeCode + MajorUpgrade，设备上只保留一个产品。
+
 ## 0.1.8 修复
 
-- 安装器 PowerShell 动作全部隐藏窗口，不再弹出多个终端。
-- 批注保存改为“保存 PDF”或“保存 PNG”，一次只保存一种。
-- 安装完成页增加“启动 PenBoard / Launch PenBoard”复选框，默认勾选，后台启动。
-- 中文语言按钮红色高亮，English 蓝色高亮。
-- 修复 0.1.6 后期自动化不触发：系统手写板可见性检测与隐藏冷却分离。
-- 识别器和语言切换串行化，修复卡死/无候选字。
+- 原生 SetupHelper 替代 PowerShell 安装动作。
+- 批注保存选择 PDF 或 PNG。
+- 安装完成页默认勾选启动。
+- 中文红色、English 蓝色高亮。
+- 系统手写板检测与隐藏冷却分离；识别器串行化。
 
 ## 0.1.7 修复
 
@@ -33,7 +42,7 @@ Windows ARM64 触控笔全屏手写 / 屏幕批注工具。
 
 ### MSI（推荐）
 
-下载 `PenBoard-0.1.8-arm64.msi`，运行后在首屏选择“中文”或“English”。
+下载 `PenBoard-0.1.9-arm64.msi`，运行后在首屏选择“中文”或“English”。
 
 - per-user 安装，不需要管理员权限；
 - 安装目录：`%LOCALAPPDATA%\Programs\PenBoard`；
@@ -43,7 +52,7 @@ Windows ARM64 触控笔全屏手写 / 屏幕批注工具。
 
 ### 便携版
 
-下载 `PenBoard-arm64-v0.1.8-portable.zip`，解压后运行 `install.cmd`。  
+下载 `PenBoard-arm64-v0.1.9-portable.zip`，解压后运行 `install.cmd`。  
 便携版安装到 `%LOCALAPPDATA%\PenBoard`，卸载时运行 `uninstall.cmd`。
 
 ## 设置笔双击
@@ -67,7 +76,7 @@ dotnet publish src/PenBoard.App/PenBoard.App.csproj `
 
 powershell -ExecutionPolicy Bypass -File installer/build-helper.ps1
 
-wix build -b installer installer/PenBoard.wxs -o artifacts/PenBoard-0.1.8-arm64.msi
+wix build -b installer installer/PenBoard.wxs -o artifacts/PenBoard-0.1.9-arm64.msi
 ```
 
 MSI 是 per-user、x86 平台 Windows Installer 包，内含 ARM64 payload；在 ARM64 Windows 上安装不受平台限制。

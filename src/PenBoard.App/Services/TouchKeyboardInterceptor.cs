@@ -22,6 +22,7 @@ public sealed class TouchKeyboardInterceptor : IDisposable
     private long _lastTouchTick;
     private long _lastTriggerTick;
     private long _lastHideTick;
+    private IntPtr _lastNonKeyboardForeground;
     private bool _keyboardWasVisible;
     private bool _disposed;
 
@@ -185,6 +186,11 @@ public sealed class TouchKeyboardInterceptor : IDisposable
                 return;
             }
 
+            if (!IsKeyboardWindow(foreground))
+            {
+                _lastNonKeyboardForeground = foreground;
+            }
+
             var keyboardVisible = IsTouchKeyboardVisible();
             var newlyVisible = keyboardVisible && !_keyboardWasVisible;
             if (keyboardVisible)
@@ -211,8 +217,18 @@ public sealed class TouchKeyboardInterceptor : IDisposable
 
             _lastTriggerTick = now;
             _lastTouchTick = 0;
-            Logger.Debug($"TouchKeyboardInterceptor trigger: foreground=0x{foreground.ToInt64():X} touch={touchRecent} keyboard={keyboardVisible}");
-            TouchPenInput?.Invoke(foreground);
+
+            var target = _lastNonKeyboardForeground != IntPtr.Zero &&
+                         NativeMethods.IsWindow(_lastNonKeyboardForeground)
+                ? _lastNonKeyboardForeground
+                : foreground;
+            if (target == overlay)
+            {
+                return;
+            }
+
+            Logger.Debug($"TouchKeyboardInterceptor trigger: target=0x{target.ToInt64():X} foreground=0x{foreground.ToInt64():X} touch={touchRecent} keyboard={keyboardVisible}");
+            TouchPenInput?.Invoke(target);
         }
         catch (Exception ex)
         {
@@ -242,6 +258,12 @@ public sealed class TouchKeyboardInterceptor : IDisposable
                         {
                             return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
                         }
+                    }
+
+                    var foreground = NativeMethods.GetForegroundWindow();
+                    if (foreground != IntPtr.Zero && !IsKeyboardWindow(foreground))
+                    {
+                        _lastNonKeyboardForeground = foreground;
                     }
 
                     _lastTouchTick = Environment.TickCount64;

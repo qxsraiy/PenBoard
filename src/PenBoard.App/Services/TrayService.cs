@@ -15,6 +15,7 @@ public sealed class TrayService : IDisposable
     private readonly Action<bool> _onDebugLoggingChanged;
     private readonly Action _onOpenLogs;
     private readonly Action<bool> _onAutoKeyboardChanged;
+    private readonly Action _onCheckUpdates;
     private bool _disposed;
 
     public TrayService(
@@ -25,7 +26,8 @@ public sealed class TrayService : IDisposable
         Action<bool> onDebugLoggingChanged,
         Action onOpenLogs,
         bool autoReplaceTouchKeyboard,
-        Action<bool> onAutoKeyboardChanged)
+        Action<bool> onAutoKeyboardChanged,
+        Action onCheckUpdates)
     {
         _onToggle = onToggle;
         _onOpenFolder = onOpenFolder;
@@ -33,6 +35,7 @@ public sealed class TrayService : IDisposable
         _onDebugLoggingChanged = onDebugLoggingChanged;
         _onOpenLogs = onOpenLogs;
         _onAutoKeyboardChanged = onAutoKeyboardChanged;
+        _onCheckUpdates = onCheckUpdates;
 
         var icon = Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? "")
                    ?? Drawing.SystemIcons.Application;
@@ -62,6 +65,7 @@ public sealed class TrayService : IDisposable
         menu.Items.Add(new Forms.ToolStripMenuItem("打开保存目录", null, (_, _) => _onOpenFolder()));
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add(new Forms.ToolStripMenuItem("退出 PenBoard", null, (_, _) => _onExit()));
+        menu.Items.Add(new Forms.ToolStripMenuItem("检查更新", null, (_, _) => _onCheckUpdates()));
 
         _notifyIcon = new Forms.NotifyIcon
         {
