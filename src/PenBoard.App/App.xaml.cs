@@ -26,7 +26,9 @@ public partial class App : System.Windows.Application
         if (command is "--diag" or "--diagnose")
         {
             Diagnostics.Run();
-            Dispatcher.BeginInvoke(new Action(() => Shutdown(0)));
+            // This is a headless diagnostic run. Exit immediately so WPF/COM
+            // finalizers cannot turn a successful report into a crash dialog.
+            Environment.Exit(0);
             return;
         }
 
