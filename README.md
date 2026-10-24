@@ -50,7 +50,7 @@ dotnet publish src/PenBoard.App/PenBoard.App.csproj `
   -c Release -r win-arm64 --self-contained true `
   -p:PublishSingleFile=false -o artifacts/arm64/app
 
-wix build installer/PenBoard.wxs -o artifacts/PenBoard-0.1.5-arm64.msi
+wix build -b installer installer/PenBoard.wxs -o artifacts/PenBoard-0.1.5-arm64.msi
 ```
 
 MSI 是 per-user、x86 平台 Windows Installer 包，内含 ARM64 payload；在 ARM64 Windows 上安装不受平台限制。
