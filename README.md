@@ -9,10 +9,16 @@ Windows ARM64 触控笔全屏手写 / 屏幕批注工具。
 - 支持涂抹擦、整笔擦、撤销、颜色、粗细。
 - 托盘调试日志、实验性的系统手写板替换。
 
-当前版本：**v0.1.13**  
+当前版本：**v0.1.14**  
 发布页：https://github.com/qxsraiy/PenBoard/releases
 
 > 这是未签名构建。SmartScreen 仍可能提示；代码签名证书需要企业/个人主体注册审核，本轮未做。
+
+## 0.1.14 修复
+
+- 自动化开启后即使覆盖层关闭，也持续每 400ms 隐藏系统手写板并每 1.5s 结束 TabTip/TextInputHost。
+- 注册表抑制扩展到 10 个开关（TabletTip\1.7 + Explorer\Advanced）。
+- 关闭后暂停自动打开，直到下一次点击输入框。
 
 ## 0.1.13 修复
 
@@ -40,7 +46,7 @@ Windows ARM64 触控笔全屏手写 / 屏幕批注工具。
 
 - 修复“保存后退出”：保存 PNG/PDF 后保持覆盖层，可以继续批注；只有“关闭 → 保存并关闭 → 选择格式”才关闭。
 - 自动化新增 UI 焦点变化检测，系统手写板抢焦点或触控笔事件不回调时也能自动打开 PenBoard。
-- 版本号递增到 0.1.13，不覆盖 0.1.9 Release。
+- 版本号递增到 0.1.14，不覆盖 0.1.9 Release。
 
 ## 0.1.9 修复
 
@@ -70,7 +76,7 @@ Windows ARM64 触控笔全屏手写 / 屏幕批注工具。
 
 ### MSI（推荐）
 
-下载 `PenBoard-0.1.13-arm64.msi`，运行后在首屏选择“中文”或“English”。
+下载 `PenBoard-0.1.14-arm64.msi`，运行后在首屏选择“中文”或“English”。
 
 - per-user 安装，不需要管理员权限；
 - 安装目录：`%LOCALAPPDATA%\Programs\PenBoard`；
@@ -80,7 +86,7 @@ Windows ARM64 触控笔全屏手写 / 屏幕批注工具。
 
 ### 便携版
 
-下载 `PenBoard-arm64-v0.1.13-portable.zip`，解压后运行 `install.cmd`。  
+下载 `PenBoard-arm64-v0.1.14-portable.zip`，解压后运行 `install.cmd`。  
 便携版安装到 `%LOCALAPPDATA%\PenBoard`，卸载时运行 `uninstall.cmd`。
 
 ## 设置笔双击
@@ -104,7 +110,7 @@ dotnet publish src/PenBoard.App/PenBoard.App.csproj `
 
 powershell -ExecutionPolicy Bypass -File installer/build-helper.ps1
 
-wix build -b installer installer/PenBoard.wxs -o artifacts/PenBoard-0.1.13-arm64.msi
+wix build -b installer installer/PenBoard.wxs -o artifacts/PenBoard-0.1.14-arm64.msi
 ```
 
 MSI 是 per-user、x86 平台 Windows Installer 包，内含 ARM64 payload；在 ARM64 Windows 上安装不受平台限制。

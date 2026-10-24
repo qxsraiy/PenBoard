@@ -10,16 +10,21 @@ namespace PenBoard.Services;
 /// </summary>
 public sealed class OskSuppression : IDisposable
 {
-    private const string KeyPath = @"Software\Microsoft\TabletTip\1.7";
+    private const string TabletTip = @"Software\Microsoft\TabletTip\1.7";
+    private const string ExplorerAdvanced = @"Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced";
 
-    private static readonly (string Name, int Value)[] Values =
+    private static readonly (string Path, string Name, int Value)[] Values =
     {
-        ("EnableDesktopModeAutoInvoke", 0),
-        ("EnableAutoInvoke", 0),
-        ("EnableTouchKeyboardAutoShow", 0),
-        ("DisableTouchKeyboardAutoShow", 1),
-        ("ShowTouchKeyboardOnFocus", 0),
-        ("EnableHandwritingPanel", 0)
+        (TabletTip, "EnableDesktopModeAutoInvoke", 0),
+        (TabletTip, "EnableAutoInvoke", 0),
+        (TabletTip, "EnableTouchKeyboardAutoShow", 0),
+        (TabletTip, "DisableTouchKeyboardAutoShow", 1),
+        (TabletTip, "ShowTouchKeyboardOnFocus", 0),
+        (TabletTip, "EnableHandwritingPanel", 0),
+        (TabletTip, "EnableTouchKeyboard", 0),
+        (TabletTip, "TouchKeyboardAutoInvoke", 0),
+        (TabletTip, "AutoShowTouchKeyboard", 0),
+        (ExplorerAdvanced, "EnableTouchKeyboard", 0)
     };
 
     private readonly Dictionary<string, object?> _originals = new(StringComparer.OrdinalIgnoreCase);
@@ -35,32 +40,36 @@ public sealed class OskSuppression : IDisposable
 
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(KeyPath, true)
-                            ?? Registry.CurrentUser.CreateSubKey(KeyPath, true);
-            if (key is null)
-            {
-                return;
-            }
-
             _originals.Clear();
             _missing.Clear();
-            foreach (var (name, value) in Values)
+            foreach (var group in Values.GroupBy(v => v.Path))
             {
-                var original = key.GetValue(name);
-                if (original is null)
+                using var key = Registry.CurrentUser.OpenSubKey(group.Key, true)
+                                ?? Registry.CurrentUser.CreateSubKey(group.Key, true);
+                if (key is null)
                 {
-                    _missing.Add(name);
+                    continue;
                 }
-                else
+
+                foreach (var (_, name, value) in group)
                 {
-                    _originals[name] = original;
+                    var original = key.GetValue(name);
+                    var id = group.Key + "|" + name;
+                    if (original is null)
+                    {
+                        _missing.Add(id);
+                    }
+                    else
+                    {
+                        _originals[id] = original;
+                    }
+                    key.SetValue(name, value, RegistryValueKind.DWord);
                 }
-                key.SetValue(name, value, RegistryValueKind.DWord);
             }
 
             _applied = true;
             Logger.Log("OSK registry suppression applied: " + string.Join(", ",
-                Values.Select(v => v.Name + "=" + v.Value)));
+                Values.Select(v => v.Path + "\\" + v.Name + "=" + v.Value)));
             KillOskProcesses();
         }
         catch (Exception ex)
@@ -108,21 +117,25 @@ public sealed class OskSuppression : IDisposable
 
         try
         {
-            using var key = Registry.CurrentUser.OpenSubKey(KeyPath, true);
-            if (key is null)
+            foreach (var group in Values.GroupBy(v => v.Path))
             {
-                return;
-            }
-
-            foreach (var (name, _) in Values)
-            {
-                if (_originals.TryGetValue(name, out var original))
+                using var key = Registry.CurrentUser.OpenSubKey(group.Key, true);
+                if (key is null)
                 {
-                    key.SetValue(name, original!, RegistryValueKind.DWord);
+                    continue;
                 }
-                else if (_missing.Contains(name))
+
+                foreach (var (_, name, _) in group)
                 {
-                    key.DeleteValue(name, false);
+                    var id = group.Key + "|" + name;
+                    if (_originals.TryGetValue(id, out var original))
+                    {
+                        key.SetValue(name, original!, RegistryValueKind.DWord);
+                    }
+                    else if (_missing.Contains(id))
+                    {
+                        key.DeleteValue(name, false);
+                    }
                 }
             }
             Logger.Log("OSK registry suppression restored.");

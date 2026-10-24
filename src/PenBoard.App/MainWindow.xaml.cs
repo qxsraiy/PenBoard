@@ -39,6 +39,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly DispatcherTimer _candidateTimer;
     private readonly DispatcherTimer _autoFocusTimer;
     private readonly DispatcherTimer _overlayTopmostTimer;
+    private readonly DispatcherTimer _oskSuppressTimer;
     private readonly Stack<Stroke> _undoStack = new();
     private readonly List<Button> _toolButtons = new();
     private readonly List<Button> _colorButtons = new();
@@ -104,6 +105,12 @@ public partial class MainWindow : Window, IDisposable
         };
         _overlayTopmostTimer.Tick += OverlayTopmostTimer_Tick;
         _overlayTopmostTimer.Start();
+        _oskSuppressTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(400)
+        };
+        _oskSuppressTimer.Tick += OskSuppressTimer_Tick;
+        _oskSuppressTimer.Start();
 
         SourceInitialized += MainWindow_SourceInitialized;
         Closing += MainWindow_Closing;
@@ -760,6 +767,22 @@ public partial class MainWindow : Window, IDisposable
         finally
         {
             _autoFocusChecking = false;
+        }
+    }
+
+    private void OskSuppressTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_settings.AutoReplaceTouchKeyboard)
+        {
+            return;
+        }
+
+        _touchInterceptor.HideTouchKeyboard(true);
+        var now = Environment.TickCount64;
+        if (now - _lastOskKillTick > 1500)
+        {
+            _lastOskKillTick = now;
+            _oskSuppression.KillOskProcesses();
         }
     }
 
