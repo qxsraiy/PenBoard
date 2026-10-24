@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Ink;
 using System.Windows.Input;
@@ -35,6 +36,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly UpdateService _updateService = new();
     private readonly DispatcherTimer _recognitionTimer;
     private readonly DispatcherTimer _candidateTimer;
+    private readonly DispatcherTimer _autoFocusTimer;
     private readonly Stack<Stroke> _undoStack = new();
     private readonly List<Button> _toolButtons = new();
     private readonly List<Button> _colorButtons = new();
@@ -47,7 +49,10 @@ public partial class MainWindow : Window, IDisposable
     private bool _opening;
     private bool _targetSupportsText;
     private bool _savePromptVisible;
-    private bool _formatPromptFromClose;
+    private bool _formatClosesAfterSave;
+    private bool _autoFocusInitialized;
+    private bool _autoFocusChecking;
+    private string? _lastAutoFocusKey;
     private long _lastToggleTick;
     private long _openedAtTick;
     private bool _isRecognizing;
@@ -82,6 +87,12 @@ public partial class MainWindow : Window, IDisposable
             Interval = TimeSpan.FromMilliseconds(_settings.CandidateDelayMs)
         };
         _candidateTimer.Tick += CandidateTimer_Tick;
+        _autoFocusTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(300)
+        };
+        _autoFocusTimer.Tick += AutoFocusTimer_Tick;
+        _autoFocusTimer.Start();
 
         SourceInitialized += MainWindow_SourceInitialized;
         Closing += MainWindow_Closing;
@@ -286,6 +297,7 @@ public partial class MainWindow : Window, IDisposable
         }
         else
         {
+            _formatClosesAfterSave = false;
             ShowFormatPrompt();
         }
         Logger.Debug("Save prompt shown: " + (closeAfterSave ? "close" : "save"));
@@ -293,7 +305,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void ShowClosePrompt()
     {
-        _formatPromptFromClose = true;
+        _formatClosesAfterSave = false;
         SavePromptTitle.Text = "关闭批注？";
         SavePromptDetail.Text =
             $"有 {InkCanvas.Strokes.Count} 个笔迹。\n保存并关闭，还是舍弃？";
@@ -318,7 +330,7 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _savePromptVisible = false;
-        _formatPromptFromClose = false;
+        _formatClosesAfterSave = false;
         SavePromptBackdrop.Visibility = Visibility.Collapsed;
         InkCanvas.IsHitTestVisible = true;
         Toolbar.IsEnabled = true;
@@ -327,7 +339,7 @@ public partial class MainWindow : Window, IDisposable
 
     private void ClosePrompt_Save_Click(object sender, RoutedEventArgs e)
     {
-        _formatPromptFromClose = true;
+        _formatClosesAfterSave = true;
         ShowFormatPrompt();
     }
 
@@ -345,17 +357,17 @@ public partial class MainWindow : Window, IDisposable
 
     private void FormatPng_Click(object sender, RoutedEventArgs e)
     {
-        SaveSelected(ExportFormat.Png);
+        SaveSelected(ExportFormat.Png, _formatClosesAfterSave);
     }
 
     private void FormatPdf_Click(object sender, RoutedEventArgs e)
     {
-        SaveSelected(ExportFormat.Pdf);
+        SaveSelected(ExportFormat.Pdf, _formatClosesAfterSave);
     }
 
     private void FormatCancel_Click(object sender, RoutedEventArgs e)
     {
-        if (_formatPromptFromClose)
+        if (_formatClosesAfterSave)
         {
             ShowClosePrompt();
         }
@@ -365,14 +377,17 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private void SaveSelected(ExportFormat format)
+    private void SaveSelected(ExportFormat format, bool closeAfterSave)
     {
-        Logger.Log("SaveSelected: " + format);
+        Logger.Log($"SaveSelected: {format}, close={closeAfterSave}");
         try
         {
             SaveCurrent(format);
             HideSavePrompt();
-            HideOverlay();
+            if (closeAfterSave)
+            {
+                HideOverlay();
+            }
         }
         catch (Exception ex)
         {
@@ -448,6 +463,8 @@ public partial class MainWindow : Window, IDisposable
         Logger.Log("HideOverlay");
         Hide();
         _isOpen = false;
+        _autoFocusInitialized = false;
+        _lastAutoFocusKey = null;
         _savePromptVisible = false;
         _screenshot = null;
         BackgroundImage.Source = null;
@@ -652,6 +669,8 @@ public partial class MainWindow : Window, IDisposable
         _settings.AutoReplaceTouchKeyboard = enabled;
         _settings.Save();
         _touchInterceptor.Enabled = enabled;
+        _autoFocusInitialized = false;
+        _lastAutoFocusKey = null;
         Logger.Log("Auto replace touch keyboard: " + enabled);
         if (enabled)
         {
@@ -661,6 +680,96 @@ public partial class MainWindow : Window, IDisposable
                 "触控笔点击输入框或系统手写板出现时，会尝试用 PenBoard 全屏手写替换。",
                 false);
         }
+    }
+
+    private async void AutoFocusTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_settings.AutoReplaceTouchKeyboard || _isOpen || _opening)
+        {
+            return;
+        }
+
+        if (_autoFocusChecking)
+        {
+            return;
+        }
+
+        _autoFocusChecking = true;
+        try
+        {
+            var focus = await Task.Run(GetFocusInfo);
+            if (focus is null)
+            {
+                return;
+            }
+
+            if (!_autoFocusInitialized)
+            {
+                _autoFocusInitialized = true;
+                _lastAutoFocusKey = focus.Value.Key;
+                Logger.Debug("AutoFocus initialized: " + focus.Value.Key);
+                return;
+            }
+
+            if (string.Equals(focus.Value.Key, _lastAutoFocusKey, StringComparison.Ordinal))
+            {
+                return;
+            }
+            _lastAutoFocusKey = focus.Value.Key;
+
+            var target = focus.Value.Hwnd != IntPtr.Zero && NativeMethods.IsWindow(focus.Value.Hwnd)
+                ? focus.Value.Hwnd
+                : NativeMethods.GetForegroundWindow();
+            if (target == IntPtr.Zero || target == _hwnd)
+            {
+                return;
+            }
+
+            var context = await _caretProbe.ProbeAsync(target, 300);
+            Logger.Debug($"AutoFocus changed: key={focus.Value.Key}, target=0x{target.ToInt64():X}, text={context.IsText}, detail={context.Detail}");
+            if (!context.IsText)
+            {
+                return;
+            }
+
+            _touchInterceptor.HideTouchKeyboard(true);
+            OpenOverlay(target);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log("AutoFocus: " + ex.Message);
+        }
+        finally
+        {
+            _autoFocusChecking = false;
+        }
+    }
+
+    private static FocusInfo? GetFocusInfo()
+    {
+        try
+        {
+            var element = AutomationElement.FocusedElement;
+            var runtimeId = string.Join(",", element.GetRuntimeId());
+            var key = $"{element.Current.ProcessId}|{element.Current.ControlType.ProgrammaticName}|{runtimeId}";
+            return new FocusInfo(key, new IntPtr(element.Current.NativeWindowHandle));
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private readonly struct FocusInfo
+    {
+        public FocusInfo(string key, IntPtr hwnd)
+        {
+            Key = key;
+            Hwnd = hwnd;
+        }
+
+        public string Key { get; }
+        public IntPtr Hwnd { get; }
     }
 
     private async void OnTouchPenInput(IntPtr target)
