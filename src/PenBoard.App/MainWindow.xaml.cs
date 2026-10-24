@@ -265,7 +265,7 @@ public partial class MainWindow : Window, IDisposable
 
         _savePromptVisible = true;
         SavePromptDetail.Text =
-            $"有 {InkCanvas.Strokes.Count} 个笔迹。保存 PNG + PDF 后再关闭？\n保存目录：{_settings.SaveDirectory}";
+            $"有 {InkCanvas.Strokes.Count} 个笔迹。请选择保存格式（只保存一种）：\n保存目录：{_settings.SaveDirectory}";
         SavePromptBackdrop.Visibility = Visibility.Visible;
         InkCanvas.IsHitTestVisible = false;
         Toolbar.IsEnabled = false;
@@ -289,18 +289,28 @@ public partial class MainWindow : Window, IDisposable
         Logger.Debug("Save prompt hidden.");
     }
 
-    private void SavePrompt_Save_Click(object sender, RoutedEventArgs e)
+    private void SavePrompt_SavePdf_Click(object sender, RoutedEventArgs e)
     {
-        Logger.Log("SavePrompt_Save_Click");
+        SaveSelected(ExportFormat.Pdf);
+    }
+
+    private void SavePrompt_SavePng_Click(object sender, RoutedEventArgs e)
+    {
+        SaveSelected(ExportFormat.Png);
+    }
+
+    private void SaveSelected(ExportFormat format)
+    {
+        Logger.Log("SaveSelected: " + format);
         try
         {
-            SaveCurrent();
+            SaveCurrent(format);
             HideSavePrompt();
             HideOverlay();
         }
         catch (Exception ex)
         {
-            Logger.Log("SavePrompt_Save: " + ex);
+            Logger.Log("SaveSelected: " + ex);
             StatusText.Text = "保存失败：" + ex.Message;
             _tray?.ShowBalloon("保存失败", ex.Message, true);
         }
@@ -483,7 +493,7 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private void SaveCurrent()
+    private void SaveCurrent(ExportFormat format)
     {
         if (_screenshot is null)
         {
@@ -492,21 +502,10 @@ public partial class MainWindow : Window, IDisposable
 
         var dipWidth = InkCanvas.ActualWidth > 0 ? InkCanvas.ActualWidth : Width;
         var dipHeight = InkCanvas.ActualHeight > 0 ? InkCanvas.ActualHeight : Height;
-        var result = _exporter.Export(_screenshot, InkCanvas.Strokes, dipWidth, dipHeight, _settings);
+        var result = _exporter.Export(_screenshot, InkCanvas.Strokes, dipWidth, dipHeight, _settings, format);
 
-        var parts = new List<string>();
-        if (!string.IsNullOrEmpty(result.PngPath))
-        {
-            parts.Add("PNG");
-        }
-        if (!string.IsNullOrEmpty(result.PdfPath))
-        {
-            parts.Add("PDF");
-        }
-
-        var message = parts.Count > 0
-            ? $"{string.Join(" + ", parts)} 已保存到 {result.Directory}"
-            : "没有启用保存格式。";
+        var label = format == ExportFormat.Pdf ? "PDF" : "PNG";
+        var message = $"{label} 已保存到 {result.Directory}";
         StatusText.Text = message;
         _tray?.ShowBalloon("批注已保存", message);
         Logger.Log("Saved: " + message);
@@ -1044,12 +1043,10 @@ public partial class MainWindow : Window, IDisposable
             ? "当前：English 识别（半角标点）"
             : "当前：中文识别（全角标点）";
         LanguageButton.Background = english
-            ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x7D, 0xFF))
-            : new SolidColorBrush(System.Windows.Media.Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF));
-        LanguageButton.BorderBrush = english
-            ? Brushes.White
-            : new SolidColorBrush(System.Windows.Media.Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
-        LanguageButton.BorderThickness = new Thickness(english ? 2 : 1);
+            ? new SolidColorBrush(System.Windows.Media.Color.FromRgb(0x1E, 0x88, 0xE5))
+            : new SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE5, 0x39, 0x35));
+        LanguageButton.BorderBrush = Brushes.White;
+        LanguageButton.BorderThickness = new Thickness(2);
     }
 
     private void Backspace_Click(object sender, RoutedEventArgs e)
@@ -1109,17 +1106,7 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        try
-        {
-            SaveCurrent();
-            HideOverlay();
-        }
-        catch (Exception ex)
-        {
-            Logger.Log("Save_Click: " + ex);
-            StatusText.Text = "保存失败：" + ex.Message;
-            _tray?.ShowBalloon("保存失败", ex.Message, true);
-        }
+        ShowSavePrompt();
     }
 
     private void Close_Click(object sender, RoutedEventArgs e)

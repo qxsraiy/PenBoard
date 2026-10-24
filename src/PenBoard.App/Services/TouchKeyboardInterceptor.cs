@@ -51,6 +51,35 @@ public sealed class TouchKeyboardInterceptor : IDisposable
         _timer.Start();
     }
 
+    public bool IsTouchKeyboardVisible()
+    {
+        var visible = false;
+        try
+        {
+            NativeMethods.EnumWindows((hwnd, _) =>
+            {
+                if (!NativeMethods.IsWindowVisible(hwnd))
+                {
+                    return true;
+                }
+
+                if (IsKeyboardWindow(hwnd))
+                {
+                    visible = true;
+                    return false;
+                }
+
+                return true;
+            }, IntPtr.Zero);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log("IsTouchKeyboardVisible: " + ex.Message);
+        }
+
+        return visible;
+    }
+
     public bool HideTouchKeyboard()
     {
         var now = Environment.TickCount64;
@@ -70,32 +99,11 @@ public sealed class TouchKeyboardInterceptor : IDisposable
                     return true;
                 }
 
-                NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
-                var processName = "";
-                try
-                {
-                    processName = Process.GetProcessById((int)pid).ProcessName;
-                }
-                catch
-                {
-                    // ignore
-                }
-
-                var className = GetClassName(hwnd);
-                var title = GetWindowText(hwnd);
-                var isKeyboard =
-                    processName.Equals("TabTip", StringComparison.OrdinalIgnoreCase) ||
-                    processName.Equals("TextInputHost", StringComparison.OrdinalIgnoreCase) ||
-                    className.Contains("IPTip", StringComparison.OrdinalIgnoreCase) ||
-                    className.Contains("TextInput", StringComparison.OrdinalIgnoreCase) ||
-                    title.Contains("触摸键盘", StringComparison.OrdinalIgnoreCase) ||
-                    title.Contains("Touch keyboard", StringComparison.OrdinalIgnoreCase);
-
-                if (isKeyboard)
+                if (IsKeyboardWindow(hwnd))
                 {
                     NativeMethods.ShowWindow(hwnd, NativeMethods.SW_HIDE);
                     hidden = true;
-                    Logger.Debug($"HideTouchKeyboard: hwnd=0x{hwnd.ToInt64():X} process={processName} class={className} title={title}");
+                    Logger.Debug($"HideTouchKeyboard: hwnd=0x{hwnd.ToInt64():X} process={ProcessName(hwnd)} class={GetClassName(hwnd)}");
                 }
 
                 return true;
@@ -107,6 +115,42 @@ public sealed class TouchKeyboardInterceptor : IDisposable
         }
 
         return hidden;
+    }
+
+    private static bool IsKeyboardWindow(IntPtr hwnd)
+    {
+        NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+        var processName = "";
+        try
+        {
+            processName = Process.GetProcessById((int)pid).ProcessName;
+        }
+        catch
+        {
+            // ignore
+        }
+
+        var className = GetClassName(hwnd);
+        var title = GetWindowText(hwnd);
+        return processName.Equals("TabTip", StringComparison.OrdinalIgnoreCase) ||
+               processName.Equals("TextInputHost", StringComparison.OrdinalIgnoreCase) ||
+               className.Contains("IPTip", StringComparison.OrdinalIgnoreCase) ||
+               className.Contains("TextInput", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("触摸键盘", StringComparison.OrdinalIgnoreCase) ||
+               title.Contains("Touch keyboard", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string ProcessName(IntPtr hwnd)
+    {
+        try
+        {
+            NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+            return Process.GetProcessById((int)pid).ProcessName;
+        }
+        catch
+        {
+            return "";
+        }
     }
 
     private void Timer_Tick(object? sender, EventArgs e)
@@ -126,10 +170,15 @@ public sealed class TouchKeyboardInterceptor : IDisposable
                 return;
             }
 
-            var keyboardVisible = HideTouchKeyboard();
+            var keyboardVisible = IsTouchKeyboardVisible();
+            if (keyboardVisible)
+            {
+                HideTouchKeyboard();
+            }
+
             if (keyboardVisible && !_keyboardWasVisible)
             {
-                Logger.Debug("Touch keyboard became visible; hiding and requesting overlay.");
+                Logger.Debug("Touch keyboard became visible; requesting overlay.");
             }
             _keyboardWasVisible = keyboardVisible;
 

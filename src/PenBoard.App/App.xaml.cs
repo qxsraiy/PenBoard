@@ -35,6 +35,13 @@ public partial class App : System.Windows.Application
         _singleInstance = new SingleInstance();
         if (!_singleInstance.TryAcquire())
         {
+            if (command == "--daemon")
+            {
+                // Installer launch should never toggle an already running app.
+                Shutdown(0);
+                return;
+            }
+
             var message = command switch
             {
                 "--quit" => "QUIT",

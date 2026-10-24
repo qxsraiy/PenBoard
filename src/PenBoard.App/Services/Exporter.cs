@@ -6,6 +6,12 @@ using System.Windows.Media.Imaging;
 
 namespace PenBoard.Services;
 
+public enum ExportFormat
+{
+    Png,
+    Pdf
+}
+
 public sealed class ExportResult
 {
     public string? PngPath { get; init; }
@@ -20,7 +26,8 @@ public sealed class Exporter
         StrokeCollection strokes,
         double dipWidth,
         double dipHeight,
-        Settings settings)
+        Settings settings,
+        ExportFormat format)
     {
         if (background.PixelWidth <= 0 || background.PixelHeight <= 0)
         {
@@ -62,7 +69,7 @@ public sealed class Exporter
         string? pngPath = null;
         string? pdfPath = null;
 
-        if (settings.AutoSavePng)
+        if (format == ExportFormat.Png)
         {
             pngPath = Path.Combine(directory, stem + ".png");
             var encoder = new PngBitmapEncoder();
@@ -70,8 +77,7 @@ public sealed class Exporter
             using var fs = new FileStream(pngPath, FileMode.Create, FileAccess.Write, FileShare.None);
             encoder.Save(fs);
         }
-
-        if (settings.AutoSavePdf)
+        else
         {
             pdfPath = Path.Combine(directory, stem + ".pdf");
             var jpegEncoder = new JpegBitmapEncoder { QualityLevel = 90 };
