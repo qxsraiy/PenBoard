@@ -152,21 +152,132 @@ public sealed class CaretProbe
                 };
             }
 
-            var controlType = focused.Current.ControlType;
-            var isEnabled = focused.Current.IsEnabled;
-            var isKeyboardFocusable = focused.Current.IsKeyboardFocusable;
-            var processId = focused.Current.ProcessId;
-            var name = focused.Current.Name ?? "";
-            var className = focused.Current.ClassName ?? "";
+            var direct = EvaluateElement(focused, target, "focus");
+            if (direct.IsText)
+            {
+                return direct;
+            }
 
-            var hasValuePattern = focused.TryGetCurrentPattern(ValuePattern.Pattern, out var valueObj);
+            // UWP input can report a Windows.UI.Input.InputSite.WindowClass
+            // host as the focused element instead of the actual text box.
+            // Search the nearest app window for a focused editable control.
+            var fallback = FindEditableFromTarget(target);
+            if (fallback is not null)
+            {
+                var result = EvaluateElement(fallback, target, "fallback");
+                if (result.IsText)
+                {
+                    return result;
+                }
+            }
+
+            return direct;
+        }
+        catch (Exception ex)
+        {
+            return new CaretContext
+            {
+                TargetHwnd = target,
+                Source = "UIA",
+                Detail = "exception: " + ex.GetType().Name
+            };
+        }
+    }
+
+    private static AutomationElement? FindEditableFromTarget(IntPtr target)
+    {
+        if (target == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            var element = AutomationElement.FromHandle(target);
+            if (element is null)
+            {
+                return null;
+            }
+
+            var root = element;
+            for (var i = 0; i < 8; i++)
+            {
+                var parent = TreeWalker.ControlViewWalker.GetParent(root);
+                if (parent is null || parent == AutomationElement.RootElement)
+                {
+                    break;
+                }
+                root = parent;
+            }
+
+            return FindEditable(root) ?? FindEditable(element);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static AutomationElement? FindEditable(AutomationElement root)
+    {
+        try
+        {
+            var condition = new OrCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Document),
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ComboBox));
+
+            var elements = root.FindAll(TreeScope.Subtree, condition);
+            AutomationElement? first = null;
+            foreach (AutomationElement element in elements)
+            {
+                if (element.Current.HasKeyboardFocus)
+                {
+                    return element;
+                }
+
+                if (first is null && element.Current.IsKeyboardFocusable && element.Current.IsEnabled)
+                {
+                    first = element;
+                }
+            }
+
+            // For an InputSite host, the actual edit is often the only editable
+            // descendant. Do not use this fallback for normal windows, where it
+            // could pick an unrelated search box.
+            var className = root.Current.ClassName ?? "";
+            if (className.Contains("InputSite", StringComparison.OrdinalIgnoreCase))
+            {
+                return first;
+            }
+
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static CaretContext EvaluateElement(AutomationElement element, IntPtr target, string source)
+    {
+        try
+        {
+            var controlType = element.Current.ControlType;
+            var isEnabled = element.Current.IsEnabled;
+            var isKeyboardFocusable = element.Current.IsKeyboardFocusable;
+            var processId = element.Current.ProcessId;
+            var name = element.Current.Name ?? "";
+            var className = element.Current.ClassName ?? "";
+
+            var hasValuePattern = element.TryGetCurrentPattern(ValuePattern.Pattern, out var valueObj);
             var readOnly = false;
             if (hasValuePattern && valueObj is ValuePattern valuePattern)
             {
                 readOnly = valuePattern.Current.IsReadOnly;
             }
 
-            var hasTextPattern = focused.TryGetCurrentPattern(TextPattern.Pattern, out var textObj);
+            var hasTextPattern = element.TryGetCurrentPattern(TextPattern.Pattern, out var textObj);
             var caretRect = Rect.Empty;
             if (hasTextPattern && textObj is TextPattern textPattern)
             {
@@ -200,12 +311,18 @@ public sealed class CaretProbe
             }
 
             var isWord = processName.Equals("WINWORD", StringComparison.OrdinalIgnoreCase);
+            var isNotepad = processName.Equals("notepad", StringComparison.OrdinalIgnoreCase);
             var isEdit = controlType == ControlType.Edit;
             var isDocument = controlType == ControlType.Document;
             var isComboBox = controlType == ControlType.ComboBox;
 
-            var editable = isEnabled && isKeyboardFocusable && !readOnly &&
-                           (isEdit || isComboBox || (hasValuePattern && !readOnly) || (isDocument && isWord));
+            var editEditable = isEdit && (!hasValuePattern || !readOnly);
+            var comboEditable = isComboBox && hasValuePattern && !readOnly;
+            var documentEditable = isDocument &&
+                                   (isWord || isNotepad || (hasValuePattern && !readOnly));
+
+            var editable = isEnabled && isKeyboardFocusable &&
+                           (editEditable || comboEditable || documentEditable);
 
             return new CaretContext
             {
@@ -213,7 +330,7 @@ public sealed class CaretProbe
                 TargetHwnd = target,
                 CaretRect = caretRect,
                 Source = "UIA",
-                Detail = $"type={controlType.ProgrammaticName} name={Truncate(name, 48)} class={className} pid={processId} value={hasValuePattern} readOnly={readOnly} text={hasTextPattern} word={isWord}"
+                Detail = $"{source} type={controlType.ProgrammaticName} name={Truncate(name, 48)} class={className} pid={processId} value={hasValuePattern} readOnly={readOnly} text={hasTextPattern} word={isWord}"
             };
         }
         catch (Exception ex)
@@ -222,7 +339,7 @@ public sealed class CaretProbe
             {
                 TargetHwnd = target,
                 Source = "UIA",
-                Detail = "exception: " + ex.GetType().Name
+                Detail = source + " exception: " + ex.GetType().Name
             };
         }
     }

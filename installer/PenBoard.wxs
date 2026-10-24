@@ -3,7 +3,7 @@
 
   <Package Name="PenBoard"
            Manufacturer="PenBoard"
-           Version="0.1.5"
+           Version="0.1.6"
            Language="2052"
            UpgradeCode="CCFAFFE2-9C27-4F14-8540-9F4996565E3D"
            Scope="perUser"
@@ -114,9 +114,9 @@
       <Property Id="DefaultUIFont" Value="PenBoardFont" />
       <Property Id="SELECTED_LANG" Value="zh" />
 
-      <Dialog Id="LanguageDlg" Width="370" Height="270" Title="PenBoard 0.1.5 Setup">
+      <Dialog Id="LanguageDlg" Width="370" Height="270" Title="PenBoard 0.1.6 Setup">
         <Control Id="Title" Type="Text" X="20" Y="20" Width="330" Height="30"
-                 Transparent="yes" NoPrefix="yes" Text="PenBoard 0.1.5 安装 / Setup" />
+                 Transparent="yes" NoPrefix="yes" Text="PenBoard 0.1.6 安装 / Setup" />
         <Control Id="Description" Type="Text" X="20" Y="65" Width="330" Height="30"
                  Transparent="yes" NoPrefix="yes"
                  Text="请选择安装语言 / Select setup language" />
@@ -136,7 +136,7 @@
         </Control>
       </Dialog>
 
-      <Dialog Id="WelcomeDlg" Width="370" Height="270" Title="PenBoard 0.1.5 Setup">
+      <Dialog Id="WelcomeDlg" Width="370" Height="270" Title="PenBoard 0.1.6 Setup">
         <Control Id="TitleZh" Type="Text" X="20" Y="20" Width="330" Height="30"
                  Transparent="yes" NoPrefix="yes" Hidden="yes" Text="欢迎使用 PenBoard 安装程序"
                  ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
@@ -145,11 +145,11 @@
                  ShowCondition="SELECTED_LANG=&quot;en&quot;" />
         <Control Id="DescZh" Type="Text" X="20" Y="70" Width="330" Height="120"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
-                 Text="将安装 PenBoard 0.1.5 到：&#xA;%LOCALAPPDATA%\Programs\PenBoard&#xA;&#xA;不需要管理员权限。&#xA;卸载时会删除设置和日志，保留“图片\PenBoard”。"
+                 Text="将安装 PenBoard 0.1.6 到：&#xA;%LOCALAPPDATA%\Programs\PenBoard&#xA;&#xA;不需要管理员权限。&#xA;卸载时会删除设置和日志，保留“图片\PenBoard”。"
                  ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
         <Control Id="DescEn" Type="Text" X="20" Y="70" Width="330" Height="120"
                  Transparent="yes" NoPrefix="yes" Hidden="yes"
-                 Text="This will install PenBoard 0.1.5 to:&#xA;%LOCALAPPDATA%\Programs\PenBoard&#xA;&#xA;No administrator rights are required.&#xA;Uninstall removes settings and logs, but keeps Pictures\PenBoard."
+                 Text="This will install PenBoard 0.1.6 to:&#xA;%LOCALAPPDATA%\Programs\PenBoard&#xA;&#xA;No administrator rights are required.&#xA;Uninstall removes settings and logs, but keeps Pictures\PenBoard."
                  ShowCondition="SELECTED_LANG=&quot;en&quot;" />
         <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17"
                  Default="yes" Text="安装 / Install">
@@ -184,7 +184,7 @@
         </Control>
       </Dialog>
 
-      <Dialog Id="ExitDialog" Width="370" Height="270" Title="PenBoard 0.1.5 Setup">
+      <Dialog Id="ExitDialog" Width="370" Height="270" Title="PenBoard 0.1.6 Setup">
         <Control Id="TitleZh" Type="Text" X="20" Y="20" Width="330" Height="30"
                  Transparent="yes" NoPrefix="yes" Hidden="yes" Text="PenBoard 安装完成"
                  ShowCondition="SELECTED_LANG=&quot;zh&quot;" />

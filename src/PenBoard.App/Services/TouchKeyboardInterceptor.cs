@@ -159,6 +159,18 @@ public sealed class TouchKeyboardInterceptor : IDisposable
                 var extra = data.dwExtraInfo.ToUInt64();
                 if ((extra & 0xFFFFFF00UL) == TouchPenSignature)
                 {
+                    // Clicks on PenBoard's own overlay (toolbar, save prompt,
+                    // language button) must not trigger the automation again.
+                    var hit = NativeMethods.WindowFromPoint(data.pt);
+                    if (hit != IntPtr.Zero)
+                    {
+                        NativeMethods.GetWindowThreadProcessId(hit, out var pid);
+                        if (pid == (uint)Environment.ProcessId)
+                        {
+                            return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
+                        }
+                    }
+
                     _lastTouchTick = Environment.TickCount64;
                     Logger.Debug($"Touch/pen click detected: x={data.pt.X}, y={data.pt.Y}, extra=0x{extra:X}");
                 }
