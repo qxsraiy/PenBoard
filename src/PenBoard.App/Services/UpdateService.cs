@@ -72,12 +72,33 @@ public sealed class UpdateService
             Directory.CreateDirectory(directory);
             var file = Path.Combine(directory, $"PenBoard-{latest}-arm64.msi");
 
-            using (var response = await http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead))
+            var progressWindow = new UpdateProgressWindow();
+            progressWindow.Show();
+            try
             {
+                using var response = await http.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
                 response.EnsureSuccessStatusCode();
+                var total = response.Content.Headers.ContentLength ?? -1;
                 await using var source = await response.Content.ReadAsStreamAsync();
                 await using var destination = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None);
-                await source.CopyToAsync(destination);
+
+                var buffer = new byte[81920];
+                long copied = 0;
+                int read;
+                while ((read = await source.ReadAsync(buffer)) > 0)
+                {
+                    await destination.WriteAsync(buffer.AsMemory(0, read));
+                    copied += read;
+                    var percent = total > 0 ? copied * 100.0 / total : -1;
+                    var text = total > 0
+                        ? $"{copied / 1024.0 / 1024.0:0.0} MB / {total / 1024.0 / 1024.0:0.0} MB"
+                        : $"{copied / 1024.0 / 1024.0:0.0} MB";
+                    progressWindow.SetProgress(percent, text);
+                }
+            }
+            finally
+            {
+                progressWindow.Close();
             }
 
             Logger.Log($"Update downloaded: {file}");

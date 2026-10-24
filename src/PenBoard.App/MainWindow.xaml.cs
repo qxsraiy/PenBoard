@@ -37,6 +37,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly DispatcherTimer _recognitionTimer;
     private readonly DispatcherTimer _candidateTimer;
     private readonly DispatcherTimer _autoFocusTimer;
+    private readonly DispatcherTimer _overlayTopmostTimer;
     private readonly Stack<Stroke> _undoStack = new();
     private readonly List<Button> _toolButtons = new();
     private readonly List<Button> _colorButtons = new();
@@ -93,6 +94,12 @@ public partial class MainWindow : Window, IDisposable
         };
         _autoFocusTimer.Tick += AutoFocusTimer_Tick;
         _autoFocusTimer.Start();
+        _overlayTopmostTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(800)
+        };
+        _overlayTopmostTimer.Tick += OverlayTopmostTimer_Tick;
+        _overlayTopmostTimer.Start();
 
         SourceInitialized += MainWindow_SourceInitialized;
         Closing += MainWindow_Closing;
@@ -553,17 +560,12 @@ public partial class MainWindow : Window, IDisposable
             // alpha step so the ink canvas still receives the pen/mouse.
             Root.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(1, 0, 0, 0));
 
-            SwitchInputButton.IsEnabled = true;
-            SwitchInputButton.Background = blue;
-            SwitchInputButton.BorderBrush = Brushes.White;
-            SwitchInputButton.BorderThickness = new Thickness(2);
-            SwitchInputButton.ToolTip = "当前：输入模式";
-
-            SwitchAnnotationButton.IsEnabled = true;
-            SwitchAnnotationButton.Background = red;
-            SwitchAnnotationButton.BorderBrush = normalBorder;
-            SwitchAnnotationButton.BorderThickness = new Thickness(1);
-            SwitchAnnotationButton.ToolTip = "切换到批注模式";
+            SwitchModeButton.IsEnabled = true;
+            SwitchModeButton.Content = "切换批注";
+            SwitchModeButton.Background = red;
+            SwitchModeButton.BorderBrush = Brushes.White;
+            SwitchModeButton.BorderThickness = new Thickness(2);
+            SwitchModeButton.ToolTip = "切换到批注模式";
         }
         else
         {
@@ -574,17 +576,12 @@ public partial class MainWindow : Window, IDisposable
             BackgroundImage.Source = _screenshot;
             Root.Background = Brushes.Black;
 
-            SwitchInputButton.IsEnabled = _targetSupportsText;
-            SwitchInputButton.Background = _targetSupportsText ? blue : grey;
-            SwitchInputButton.BorderBrush = _targetSupportsText ? Brushes.White : normalBorder;
-            SwitchInputButton.BorderThickness = new Thickness(_targetSupportsText ? 2 : 1);
-            SwitchInputButton.ToolTip = _targetSupportsText ? "切换到输入模式" : "未检测到输入框";
-
-            SwitchAnnotationButton.IsEnabled = true;
-            SwitchAnnotationButton.Background = red;
-            SwitchAnnotationButton.BorderBrush = Brushes.White;
-            SwitchAnnotationButton.BorderThickness = new Thickness(2);
-            SwitchAnnotationButton.ToolTip = "当前：批注模式";
+            SwitchModeButton.IsEnabled = _targetSupportsText;
+            SwitchModeButton.Content = "切换输入";
+            SwitchModeButton.Background = _targetSupportsText ? blue : grey;
+            SwitchModeButton.BorderBrush = _targetSupportsText ? Brushes.White : normalBorder;
+            SwitchModeButton.BorderThickness = new Thickness(_targetSupportsText ? 2 : 1);
+            SwitchModeButton.ToolTip = _targetSupportsText ? "切换到输入模式" : "未检测到输入框";
         }
     }
 
@@ -743,6 +740,21 @@ public partial class MainWindow : Window, IDisposable
         {
             _autoFocusChecking = false;
         }
+    }
+
+    private void OverlayTopmostTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_isOpen || _hwnd == IntPtr.Zero)
+        {
+            return;
+        }
+
+        NativeMethods.SetWindowPos(
+            _hwnd,
+            NativeMethods.HWND_TOPMOST,
+            0, 0, 0, 0,
+            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
+        _touchInterceptor.HideTouchKeyboard(false);
     }
 
     private static FocusInfo? GetFocusInfo()
@@ -1107,7 +1119,24 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
-    private async void SwitchAnnotation_Click(object sender, RoutedEventArgs e)
+    private void SwitchMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_isOpen)
+        {
+            return;
+        }
+
+        if (_mode == OverlayMode.Text)
+        {
+            _ = SwitchToAnnotationAsync();
+        }
+        else
+        {
+            _ = SwitchToInputAsync();
+        }
+    }
+
+    private async Task SwitchToAnnotationAsync()
     {
         if (!_isOpen || _mode == OverlayMode.Annotation)
         {
@@ -1136,7 +1165,7 @@ public partial class MainWindow : Window, IDisposable
         ShowOverlay();
     }
 
-    private async void SwitchInput_Click(object sender, RoutedEventArgs e)
+    private async Task SwitchToInputAsync()
     {
         if (!_isOpen || _mode == OverlayMode.Text)
         {

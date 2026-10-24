@@ -103,19 +103,15 @@
 
                 <Border Width="1" Background="#44FFFFFF" Margin="8,4" />
 
+                <Button x:Name="SwitchModeButton" Content="切换批注"
+                        Style="{StaticResource ToolButton}"
+                        Click="SwitchMode_Click"
+                        ToolTipService.ShowOnDisabled="True"
+                        ToolTip="切换到批注模式" />
                 <Button x:Name="LanguageButton" Content="中" Style="{StaticResource ToolButton}" Click="Language_Click" ToolTip="中文 / English 识别切换" AutomationProperties.Name="识别语言" />
                 <Button x:Name="BackspaceButton" Content="退格" Style="{StaticResource ToolButton}" Click="Backspace_Click" ToolTip="删除输入框里已识别的一个字符" />
                 <Button Content="撤销" Style="{StaticResource ToolButton}" Click="Undo_Click" />
                 <Button Content="清空" Style="{StaticResource ToolButton}" Click="Clear_Click" />
-                <Button x:Name="SwitchInputButton" Content="切换输入"
-                        Style="{StaticResource ToolButton}"
-                        Click="SwitchInput_Click"
-                        ToolTipService.ShowOnDisabled="True"
-                        ToolTip="切换到输入模式" />
-                <Button x:Name="SwitchAnnotationButton" Content="切换批注"
-                        Style="{StaticResource ToolButton}"
-                        Click="SwitchAnnotation_Click"
-                        ToolTip="切换到批注模式" />
                 <Button x:Name="SaveButton" Content="保存" Style="{StaticResource ToolButton}" Click="Save_Click" Visibility="Collapsed" />
                 <Button Content="关闭" Style="{StaticResource ToolButton}" Click="Close_Click" />
             </StackPanel>
@@ -132,7 +128,7 @@
                     Background="#F01A1A1A"
                     BorderBrush="#55FFFFFF"
                     BorderThickness="1">
-                <StackPanel MinWidth="620">
+                <StackPanel MinWidth="360" MaxWidth="560">
                     <TextBlock x:Name="SavePromptTitle"
                                Text="保存批注"
                                FontSize="22"

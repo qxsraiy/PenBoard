@@ -14,7 +14,6 @@ namespace PenBoard.Services;
 /// </summary>
 public sealed class TouchKeyboardInterceptor : IDisposable
 {
-    private const ulong TouchPenSignature = 0xFF515700UL;
     private readonly DispatcherTimer _timer;
     private NativeMethods.LowLevelMouseProc? _hookProc;
     private IntPtr _hook;
@@ -240,35 +239,30 @@ public sealed class TouchKeyboardInterceptor : IDisposable
     {
         try
         {
-            if (nCode >= 0 &&
-                (wParam.ToInt32() == NativeMethods.WM_LBUTTONDOWN ||
-                 wParam.ToInt32() == NativeMethods.WM_LBUTTONUP))
+            if (nCode >= 0 && wParam.ToInt32() == NativeMethods.WM_LBUTTONDOWN && Enabled)
             {
                 var data = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
-                var extra = data.dwExtraInfo.ToUInt64();
-                if ((extra & 0xFFFFFF00UL) == TouchPenSignature)
+
+                // Clicks on PenBoard's own overlay (toolbar, save prompt,
+                // language button) must not trigger the automation again.
+                var hit = NativeMethods.WindowFromPoint(data.pt);
+                if (hit != IntPtr.Zero)
                 {
-                    // Clicks on PenBoard's own overlay (toolbar, save prompt,
-                    // language button) must not trigger the automation again.
-                    var hit = NativeMethods.WindowFromPoint(data.pt);
-                    if (hit != IntPtr.Zero)
+                    NativeMethods.GetWindowThreadProcessId(hit, out var pid);
+                    if (pid == (uint)Environment.ProcessId)
                     {
-                        NativeMethods.GetWindowThreadProcessId(hit, out var pid);
-                        if (pid == (uint)Environment.ProcessId)
-                        {
-                            return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
-                        }
+                        return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
                     }
-
-                    var foreground = NativeMethods.GetForegroundWindow();
-                    if (foreground != IntPtr.Zero && !IsKeyboardWindow(foreground))
-                    {
-                        _lastNonKeyboardForeground = foreground;
-                    }
-
-                    _lastTouchTick = Environment.TickCount64;
-                    Logger.Debug($"Touch/pen click detected: x={data.pt.X}, y={data.pt.Y}, extra=0x{extra:X}");
                 }
+
+                var foreground = NativeMethods.GetForegroundWindow();
+                if (foreground != IntPtr.Zero && !IsKeyboardWindow(foreground))
+                {
+                    _lastNonKeyboardForeground = foreground;
+                }
+
+                _lastTouchTick = Environment.TickCount64;
+                Logger.Debug($"Mouse/pen click detected: x={data.pt.X}, y={data.pt.Y}, extra=0x{data.dwExtraInfo.ToUInt64():X}");
             }
         }
         catch
