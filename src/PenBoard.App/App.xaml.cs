@@ -1,0 +1,128 @@
+using System.Globalization;
+using System.IO;
+using System.Windows;
+using PenBoard.Interop;
+using PenBoard.Services;
+
+namespace PenBoard;
+
+public partial class App : System.Windows.Application
+{
+    private SingleInstance? _singleInstance;
+    private MainWindow? _mainWindow;
+
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        RemoveMarkOfTheWebFromSelf();
+
+        // Capture this before any WPF window is created. The pen shortcut may
+        // launch us while the real target (Notepad/Word/browser) still has focus.
+        var startupForeground = NativeMethods.GetForegroundWindow();
+        var command = (e.Args.FirstOrDefault() ?? "--toggle").Trim().ToLowerInvariant();
+        Logger.Log($"App start: command={command}, args={string.Join(' ', e.Args)}");
+
+        if (command is "--diag" or "--diagnose")
+        {
+            Diagnostics.Run();
+            Dispatcher.BeginInvoke(new Action(() => Shutdown(0)));
+            return;
+        }
+
+        _singleInstance = new SingleInstance();
+        if (!_singleInstance.TryAcquire())
+        {
+            var message = command switch
+            {
+                "--quit" => "QUIT",
+                "--open" or "--show" => "OPEN",
+                _ => "TOGGLE"
+            };
+            if (message != "QUIT" && startupForeground != IntPtr.Zero)
+            {
+                message += " " + startupForeground.ToInt64().ToString("X", CultureInfo.InvariantCulture);
+            }
+            var sent = SingleInstance.SendCommand(message);
+            Logger.Log($"Secondary instance: command={command}, sent={sent}, foreground=0x{startupForeground.ToInt64():X}");
+            Shutdown(sent ? 0 : 2);
+            return;
+        }
+
+        var settings = Settings.Load();
+        Logger.DebugEnabled = settings.DebugLogging;
+        Logger.Debug($"Settings loaded: lang={settings.RecognitionLanguage}, autoKb={settings.AutoReplaceTouchKeyboard}");
+        _mainWindow = new MainWindow(settings);
+
+        _singleInstance.StartServer(message =>
+        {
+            Dispatcher.BeginInvoke(() =>
+            {
+                Logger.Log($"IPC command: {message}");
+                var parts = message.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                var ipcCommand = parts.Length > 0 ? parts[0].Trim().ToUpperInvariant() : "";
+                var hint = IntPtr.Zero;
+                if (parts.Length > 1 &&
+                    long.TryParse(parts[1], NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var raw))
+                {
+                    hint = new IntPtr(raw);
+                }
+
+                switch (ipcCommand)
+                {
+                    case "TOGGLE":
+                        _mainWindow.Toggle(hint);
+                        break;
+                    case "OPEN":
+                        _mainWindow.OpenOverlay(hint);
+                        break;
+                    case "QUIT":
+                        _mainWindow.ExitApp();
+                        break;
+                }
+            });
+        });
+
+        if (command is "--toggle" or "--open" or "--show")
+        {
+            Dispatcher.BeginInvoke(() => _mainWindow.OpenOverlay(startupForeground));
+        }
+        else if (command == "--quit")
+        {
+            Dispatcher.BeginInvoke(() => _mainWindow.ExitApp());
+        }
+    }
+
+    private static void RemoveMarkOfTheWebFromSelf()
+    {
+        foreach (var name in new[] { "PenBoard.exe", "PenBoard.dll" })
+        {
+            try
+            {
+                var path = Path.Combine(AppContext.BaseDirectory, name);
+                if (NativeMethods.DeleteFile(path + ":Zone.Identifier"))
+                {
+                    Logger.Log("Removed Mark-of-the-Web: " + path);
+                }
+            }
+            catch
+            {
+                // The stream is normally absent; nothing to do.
+            }
+        }
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        try
+        {
+            _mainWindow?.Dispose();
+            _singleInstance?.Dispose();
+        }
+        catch (Exception ex)
+        {
+            Logger.Log("OnExit: " + ex);
+        }
+        base.OnExit(e);
+    }
+}

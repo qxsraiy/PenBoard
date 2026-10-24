@@ -1,0 +1,230 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package Name="PenBoard"
+           Manufacturer="PenBoard"
+           Version="0.1.5"
+           Language="2052"
+           UpgradeCode="CCFAFFE2-9C27-4F14-8540-9F4996565E3D"
+           Scope="perUser"
+           Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of PenBoard is already installed."
+                  Schedule="afterInstallInitialize" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="PenBoardIcon" SourceFile="app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="PenBoardIcon" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="PenBoard" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ProgramMenuDir" Name="PenBoard" />
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="PenBoard" Level="1">
+      <ComponentGroupRef Id="AppFiles" />
+      <ComponentRef Id="DesktopShortcut" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="StartupShortcut" />
+    </Feature>
+
+    <ComponentGroup Id="AppFiles" Directory="INSTALLFOLDER">
+      <Files Include="..\artifacts\arm64\app\**" />
+    </ComponentGroup>
+
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="DesktopShortcut" Guid="*">
+        <Shortcut Id="DesktopShortcut"
+                  Name="PenBoard"
+                  Target="[INSTALLFOLDER]PenBoard.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="PenBoardIcon" />
+        <RegistryValue Root="HKCU" Key="Software\PenBoard" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="ProgramMenuDir">
+      <Component Id="StartMenuShortcut" Guid="*">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="PenBoard"
+                  Target="[INSTALLFOLDER]PenBoard.exe"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="PenBoardIcon" />
+        <RegistryValue Root="HKCU" Key="Software\PenBoard" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="StartupFolder">
+      <Component Id="StartupShortcut" Guid="*">
+        <Shortcut Id="StartupShortcut"
+                  Name="PenBoard Startup"
+                  Target="[INSTALLFOLDER]PenBoard.exe"
+                  Arguments="--daemon"
+                  WorkingDirectory="INSTALLFOLDER"
+                  Icon="PenBoardIcon" />
+        <RegistryValue Root="HKCU" Key="Software\PenBoard" Name="StartupShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!-- Stop the tray process before replacing or removing files. -->
+    <CustomAction Id="StopPenBoard"
+                  Directory="SystemFolder"
+                  ExeCommand="taskkill.exe /f /im PenBoard.exe"
+                  Execute="immediate"
+                  Return="ignore" />
+
+    <!-- Remove the old ZIP-installed app directory and old root Start Menu shortcut. -->
+    <CustomAction Id="CleanupOldZipInstall"
+                  Directory="SystemFolder"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'PenBoard') -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Programs')) 'PenBoard.lnk') -Force -ErrorAction SilentlyContinue&quot;"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <!-- Signed MSI normally does not propagate MOTW, but keep this for local/unsigned builds. -->
+    <CustomAction Id="UnblockInstalledFiles"
+                  Directory="SystemFolder"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;Get-ChildItem -LiteralPath '[INSTALLFOLDER]' -Recurse -File | Unblock-File&quot;"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <!-- User explicitly chose: remove settings.json and logs on uninstall. -->
+    <CustomAction Id="RemoveUserDataOnUninstall"
+                  Directory="SystemFolder"
+                  ExeCommand="powershell.exe -NoProfile -ExecutionPolicy Bypass -Command &quot;Remove-Item -LiteralPath (Join-Path $env:APPDATA 'PenBoard') -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'PenBoard') -Recurse -Force -ErrorAction SilentlyContinue&quot;"
+                  Execute="deferred"
+                  Impersonate="yes"
+                  Return="ignore" />
+
+    <InstallExecuteSequence>
+      <Custom Action="StopPenBoard" Before="InstallInitialize" Condition="NOT Installed OR REMOVE" />
+      <Custom Action="CleanupOldZipInstall" Before="InstallFiles" Condition="NOT Installed" />
+      <Custom Action="UnblockInstalledFiles" After="InstallFiles" Condition="NOT Installed" />
+      <Custom Action="RemoveUserDataOnUninstall" Before="InstallFinalize" Condition="REMOVE~=&quot;ALL&quot;" />
+    </InstallExecuteSequence>
+
+    <UI>
+      <TextStyle Id="PenBoardFont" FaceName="Segoe UI" Size="9" />
+      <Property Id="DefaultUIFont" Value="PenBoardFont" />
+      <Property Id="SELECTED_LANG" Value="zh" />
+
+      <Dialog Id="LanguageDlg" Width="370" Height="270" Title="PenBoard 0.1.5 Setup">
+        <Control Id="Title" Type="Text" X="20" Y="20" Width="330" Height="30"
+                 Transparent="yes" NoPrefix="yes" Text="PenBoard 0.1.5 安装 / Setup" />
+        <Control Id="Description" Type="Text" X="20" Y="65" Width="330" Height="30"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="请选择安装语言 / Select setup language" />
+        <Control Id="Chinese" Type="PushButton" X="55" Y="130" Width="110" Height="30"
+                 Default="yes" Text="中文">
+          <Publish Property="SELECTED_LANG" Value="zh" Order="1" />
+          <Publish Event="NewDialog" Value="WelcomeDlg" Order="2" />
+        </Control>
+        <Control Id="English" Type="PushButton" X="205" Y="130" Width="110" Height="30"
+                 Text="English">
+          <Publish Property="SELECTED_LANG" Value="en" Order="1" />
+          <Publish Event="NewDialog" Value="WelcomeDlg" Order="2" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="取消 / Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="WelcomeDlg" Width="370" Height="270" Title="PenBoard 0.1.5 Setup">
+        <Control Id="TitleZh" Type="Text" X="20" Y="20" Width="330" Height="30"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="欢迎使用 PenBoard 安装程序"
+                 ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
+        <Control Id="TitleEn" Type="Text" X="20" Y="20" Width="330" Height="30"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="Welcome to PenBoard Setup"
+                 ShowCondition="SELECTED_LANG=&quot;en&quot;" />
+        <Control Id="DescZh" Type="Text" X="20" Y="70" Width="330" Height="120"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="将安装 PenBoard 0.1.5 到：&#xA;%LOCALAPPDATA%\Programs\PenBoard&#xA;&#xA;不需要管理员权限。&#xA;卸载时会删除设置和日志，保留“图片\PenBoard”。"
+                 ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
+        <Control Id="DescEn" Type="Text" X="20" Y="70" Width="330" Height="120"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="This will install PenBoard 0.1.5 to:&#xA;%LOCALAPPDATA%\Programs\PenBoard&#xA;&#xA;No administrator rights are required.&#xA;Uninstall removes settings and logs, but keeps Pictures\PenBoard."
+                 ShowCondition="SELECTED_LANG=&quot;en&quot;" />
+        <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="安装 / Install">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="返回 / Back">
+          <Publish Event="NewDialog" Value="LanguageDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="取消 / Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ProgressDlg" Width="370" Height="270" Title="PenBoard Setup"
+              Modeless="yes">
+        <Control Id="Title" Type="Text" X="20" Y="20" Width="330" Height="30"
+                 Transparent="yes" NoPrefix="yes" Text="正在安装 / Installing" />
+        <Control Id="Wait" Type="Text" X="20" Y="65" Width="330" Height="20"
+                 Transparent="yes" NoPrefix="yes" Text="请稍候 / Please wait" />
+        <Control Id="ActionText" Type="Text" X="20" Y="100" Width="330" Height="15">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+        <Control Id="ProgressBar" Type="ProgressBar" X="20" Y="120" Width="330" Height="10"
+                 ProgressBlocks="yes" Text="%">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17"
+                 Cancel="yes" Text="取消 / Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ExitDialog" Width="370" Height="270" Title="PenBoard 0.1.5 Setup">
+        <Control Id="TitleZh" Type="Text" X="20" Y="20" Width="330" Height="30"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="PenBoard 安装完成"
+                 ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
+        <Control Id="TitleEn" Type="Text" X="20" Y="20" Width="330" Height="30"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes" Text="PenBoard Setup Complete"
+                 ShowCondition="SELECTED_LANG=&quot;en&quot;" />
+        <Control Id="DescZh" Type="Text" X="20" Y="80" Width="330" Height="80"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="现在可以双击笔按钮，或按 Ctrl+Alt+P 测试。"
+                 ShowCondition="SELECTED_LANG=&quot;zh&quot;" />
+        <Control Id="DescEn" Type="Text" X="20" Y="80" Width="330" Height="80"
+                 Transparent="yes" NoPrefix="yes" Hidden="yes"
+                 Text="You can now double-tap the pen button or press Ctrl+Alt+P to test."
+                 ShowCondition="SELECTED_LANG=&quot;en&quot;" />
+        <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17"
+                 Default="yes" Text="完成 / Finish">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="CancelDlg" Width="260" Height="120" Title="PenBoard Setup">
+        <Control Id="Text" Type="Text" X="15" Y="15" Width="230" Height="40"
+                 Transparent="yes" NoPrefix="yes"
+                 Text="确定取消安装？&#xA;Cancel setup?" />
+        <Control Id="Yes" Type="PushButton" X="100" Y="80" Width="60" Height="18"
+                 Default="yes" Text="是 / Yes">
+          <Publish Event="EndDialog" Value="Cancel" />
+        </Control>
+        <Control Id="No" Type="PushButton" X="170" Y="80" Width="60" Height="18"
+                 Cancel="yes" Text="否 / No">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <InstallUISequence>
+        <Show Dialog="LanguageDlg" Before="ProgressDlg" Condition="NOT Installed" />
+        <Show Dialog="ProgressDlg" Before="ExecuteAction" Condition="NOT Installed OR REMOVE" />
+        <Show Dialog="ExitDialog" OnExit="success" Condition="NOT Installed OR REMOVE" />
+      </InstallUISequence>
+    </UI>
+
+  </Package>
+</Wix>

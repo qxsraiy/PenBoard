@@ -1,0 +1,205 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Windows.Threading;
+using PenBoard.Interop;
+
+namespace PenBoard.Services;
+
+/// <summary>
+/// Experimental helper for the "replace the Windows touch keyboard" switch.
+/// It detects touch/pen-generated mouse input and hides TabTip/TextInputHost
+/// when it appears. Text field probing and opening the overlay stay in
+/// MainWindow, so this class only decides when to ask.
+/// </summary>
+public sealed class TouchKeyboardInterceptor : IDisposable
+{
+    private const ulong TouchPenSignature = 0xFF515700UL;
+    private readonly DispatcherTimer _timer;
+    private NativeMethods.LowLevelMouseProc? _hookProc;
+    private IntPtr _hook;
+    private Func<IntPtr>? _overlayHandle;
+    private long _lastTouchTick;
+    private long _lastTriggerTick;
+    private bool _keyboardWasVisible;
+    private bool _disposed;
+
+    public TouchKeyboardInterceptor()
+    {
+        _timer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(120)
+        };
+        _timer.Tick += Timer_Tick;
+    }
+
+    public event Action<IntPtr>? TouchPenInput;
+
+    public bool Enabled { get; set; }
+
+    public void Start(Func<IntPtr> overlayHandle)
+    {
+        _overlayHandle = overlayHandle;
+        _hookProc = HookCallback;
+        _hook = NativeMethods.SetWindowsHookEx(
+            NativeMethods.WH_MOUSE_LL,
+            _hookProc,
+            NativeMethods.GetModuleHandle(null),
+            0);
+        Logger.Log("TouchKeyboardInterceptor hook=" + (_hook != IntPtr.Zero));
+        _timer.Start();
+    }
+
+    public bool HideTouchKeyboard()
+    {
+        var hidden = false;
+        try
+        {
+            NativeMethods.EnumWindows((hwnd, _) =>
+            {
+                if (!NativeMethods.IsWindowVisible(hwnd))
+                {
+                    return true;
+                }
+
+                NativeMethods.GetWindowThreadProcessId(hwnd, out var pid);
+                var processName = "";
+                try
+                {
+                    processName = Process.GetProcessById((int)pid).ProcessName;
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                var className = GetClassName(hwnd);
+                var title = GetWindowText(hwnd);
+                var isKeyboard =
+                    processName.Equals("TabTip", StringComparison.OrdinalIgnoreCase) ||
+                    processName.Equals("TextInputHost", StringComparison.OrdinalIgnoreCase) ||
+                    className.Contains("IPTip", StringComparison.OrdinalIgnoreCase) ||
+                    className.Contains("TextInput", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("触摸键盘", StringComparison.OrdinalIgnoreCase) ||
+                    title.Contains("Touch keyboard", StringComparison.OrdinalIgnoreCase);
+
+                if (isKeyboard)
+                {
+                    NativeMethods.ShowWindow(hwnd, NativeMethods.SW_HIDE);
+                    hidden = true;
+                    Logger.Debug($"HideTouchKeyboard: hwnd=0x{hwnd.ToInt64():X} process={processName} class={className} title={title}");
+                }
+
+                return true;
+            }, IntPtr.Zero);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log("HideTouchKeyboard: " + ex.Message);
+        }
+
+        return hidden;
+    }
+
+    private void Timer_Tick(object? sender, EventArgs e)
+    {
+        if (!Enabled || _disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            var now = Environment.TickCount64;
+            var foreground = NativeMethods.GetForegroundWindow();
+            var overlay = _overlayHandle?.Invoke() ?? IntPtr.Zero;
+            if (foreground == IntPtr.Zero || foreground == overlay)
+            {
+                return;
+            }
+
+            var keyboardVisible = HideTouchKeyboard();
+            if (keyboardVisible && !_keyboardWasVisible)
+            {
+                Logger.Debug("Touch keyboard became visible; hiding and requesting overlay.");
+            }
+            _keyboardWasVisible = keyboardVisible;
+
+            var touchRecent = now - _lastTouchTick < 900;
+            if (!touchRecent && !keyboardVisible)
+            {
+                return;
+            }
+
+            if (now - _lastTriggerTick < 900)
+            {
+                return;
+            }
+
+            _lastTriggerTick = now;
+            _lastTouchTick = 0;
+            Logger.Debug($"TouchKeyboardInterceptor trigger: foreground=0x{foreground.ToInt64():X} touch={touchRecent} keyboard={keyboardVisible}");
+            TouchPenInput?.Invoke(foreground);
+        }
+        catch (Exception ex)
+        {
+            Logger.Log("TouchKeyboardInterceptor.Timer: " + ex.Message);
+        }
+    }
+
+    private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        try
+        {
+            if (nCode >= 0 &&
+                (wParam.ToInt32() == NativeMethods.WM_LBUTTONDOWN ||
+                 wParam.ToInt32() == NativeMethods.WM_LBUTTONUP))
+            {
+                var data = Marshal.PtrToStructure<NativeMethods.MSLLHOOKSTRUCT>(lParam);
+                var extra = data.dwExtraInfo.ToUInt64();
+                if ((extra & 0xFFFFFF00UL) == TouchPenSignature)
+                {
+                    _lastTouchTick = Environment.TickCount64;
+                    Logger.Debug($"Touch/pen click detected: x={data.pt.X}, y={data.pt.Y}, extra=0x{extra:X}");
+                }
+            }
+        }
+        catch
+        {
+            // Hooks must never throw into user32.
+        }
+
+        return NativeMethods.CallNextHookEx(_hook, nCode, wParam, lParam);
+    }
+
+    private static string GetClassName(IntPtr hwnd)
+    {
+        var sb = new StringBuilder(256);
+        NativeMethods.GetClassName(hwnd, sb, sb.Capacity);
+        return sb.ToString();
+    }
+
+    private static string GetWindowText(IntPtr hwnd)
+    {
+        var sb = new StringBuilder(256);
+        NativeMethods.GetWindowText(hwnd, sb, sb.Capacity);
+        return sb.ToString();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        _timer.Stop();
+        if (_hook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(_hook);
+            _hook = IntPtr.Zero;
+        }
+        _hookProc = null;
+    }
+}

@@ -1,0 +1,18 @@
+# Build outputs
+**/bin/
+**/obj/
+**/.vs/
+artifacts/
+download/
+msi-extract/
+installer/*.msi
+installer/Test*.wxs
+installer/Test*.msi
+*.log
+*.zip
+*.wixpdb
+*.pfx
+*.snk
+*.user
+*.suo
+.vs/
