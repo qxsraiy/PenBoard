@@ -80,6 +80,13 @@ public sealed class TouchKeyboardInterceptor : IDisposable
         return visible;
     }
 
+    public void ResetTrigger()
+    {
+        _lastTriggerTick = 0;
+        _lastTouchTick = 0;
+        _keyboardWasVisible = false;
+    }
+
     public bool HideTouchKeyboard(bool force = false)
     {
         var now = Environment.TickCount64;

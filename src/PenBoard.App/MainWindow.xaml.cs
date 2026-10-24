@@ -34,6 +34,7 @@ public partial class MainWindow : Window, IDisposable
     private readonly ScreenCapture _screenCapture = new();
     private readonly Exporter _exporter = new();
     private readonly UpdateService _updateService = new();
+    private readonly OskSuppression _oskSuppression = new();
     private readonly DispatcherTimer _recognitionTimer;
     private readonly DispatcherTimer _candidateTimer;
     private readonly DispatcherTimer _autoFocusTimer;
@@ -96,7 +97,7 @@ public partial class MainWindow : Window, IDisposable
         _autoFocusTimer.Start();
         _overlayTopmostTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(800)
+            Interval = TimeSpan.FromMilliseconds(300)
         };
         _overlayTopmostTimer.Tick += OverlayTopmostTimer_Tick;
         _overlayTopmostTimer.Start();
@@ -126,6 +127,10 @@ public partial class MainWindow : Window, IDisposable
             Enabled = _settings.AutoReplaceTouchKeyboard
         };
         _touchInterceptor.TouchPenInput += OnTouchPenInput;
+        if (_settings.AutoReplaceTouchKeyboard)
+        {
+            _oskSuppression.Apply();
+        }
 
         ApplyPenAttributes();
         UpdateToolHighlights();
@@ -472,6 +477,7 @@ public partial class MainWindow : Window, IDisposable
         _isOpen = false;
         _autoFocusInitialized = false;
         _lastAutoFocusKey = null;
+        _touchInterceptor.ResetTrigger();
         _savePromptVisible = false;
         _screenshot = null;
         BackgroundImage.Source = null;
@@ -668,6 +674,14 @@ public partial class MainWindow : Window, IDisposable
         _touchInterceptor.Enabled = enabled;
         _autoFocusInitialized = false;
         _lastAutoFocusKey = null;
+        if (enabled)
+        {
+            _oskSuppression.Apply();
+        }
+        else
+        {
+            _oskSuppression.Restore();
+        }
         Logger.Log("Auto replace touch keyboard: " + enabled);
         if (enabled)
         {
@@ -754,7 +768,7 @@ public partial class MainWindow : Window, IDisposable
             NativeMethods.HWND_TOPMOST,
             0, 0, 0, 0,
             NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
-        _touchInterceptor.HideTouchKeyboard(false);
+        _touchInterceptor.HideTouchKeyboard(true);
     }
 
     private static FocusInfo? GetFocusInfo()
@@ -835,6 +849,7 @@ public partial class MainWindow : Window, IDisposable
             _recognitionTimer.Stop();
             _candidateTimer.Stop();
             _touchInterceptor.Dispose();
+            _oskSuppression.Dispose();
             if (_hotkeyRegistered && _hwnd != IntPtr.Zero)
             {
                 NativeMethods.UnregisterHotKey(_hwnd, HotkeyId);
@@ -865,6 +880,7 @@ public partial class MainWindow : Window, IDisposable
             _recognitionTimer.Stop();
             _candidateTimer.Stop();
             _touchInterceptor.Dispose();
+            _oskSuppression.Dispose();
             if (_hotkeyRegistered && _hwnd != IntPtr.Zero)
             {
                 NativeMethods.UnregisterHotKey(_hwnd, HotkeyId);
