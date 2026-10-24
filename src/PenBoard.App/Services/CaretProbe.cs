@@ -210,12 +210,66 @@ public sealed class CaretProbe
                 root = parent;
             }
 
-            return FindEditable(root) ?? FindEditable(element);
+            var found = FindEditable(root) ?? FindEditable(element);
+            if (found is not null)
+            {
+                return found;
+            }
+
+            // Some UWP hosts are top-level InputSite windows whose text control
+            // lives in another top-level window of the same process. Search the
+            // other windows for the element that actually has keyboard focus.
+            NativeMethods.GetWindowThreadProcessId(target, out var processId);
+            if (processId != 0)
+            {
+                var windows = AutomationElement.RootElement.FindAll(
+                    TreeScope.Children,
+                    System.Windows.Automation.Condition.TrueCondition);
+                foreach (AutomationElement window in windows)
+                {
+                    if (window.Current.ProcessId == (int)processId)
+                    {
+                        var focusedEdit = FindFocusedEditable(window);
+                        if (focusedEdit is not null)
+                        {
+                            return focusedEdit;
+                        }
+                    }
+                }
+            }
+
+            return null;
         }
         catch
         {
             return null;
         }
+    }
+
+    private static AutomationElement? FindFocusedEditable(AutomationElement root)
+    {
+        try
+        {
+            var condition = new OrCondition(
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Edit),
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Document),
+                new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.ComboBox));
+
+            var elements = root.FindAll(TreeScope.Subtree, condition);
+            foreach (AutomationElement element in elements)
+            {
+                if (element.Current.HasKeyboardFocus)
+                {
+                    return element;
+                }
+            }
+        }
+        catch
+        {
+            // ignore
+        }
+
+        return null;
     }
 
     private static AutomationElement? FindEditable(AutomationElement root)
