@@ -15,6 +15,7 @@
 
     <Icon Id="PenBoardIcon" SourceFile="app.ico" />
     <Binary Id="PenBoardBanner" SourceFile="banner.bmp" />
+    <Binary Id="SetupHelper" SourceFile="PenBoard.SetupHelper.arm64.exe" />
     <Property Id="ARPPRODUCTICON" Value="PenBoardIcon" />
     <Property Id="LAUNCHAPP" Value="1" />
 
@@ -74,35 +75,35 @@
     </DirectoryRef>
 
     <CustomAction Id="StopPenBoard"
-                  Directory="SystemFolder"
-                  ExeCommand="powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command &quot;Get-Process PenBoard -ErrorAction SilentlyContinue | Stop-Process -Force&quot;"
+                  BinaryRef="SetupHelper"
+                  ExeCommand="stop"
                   Execute="immediate"
                   Return="ignore" />
 
     <CustomAction Id="CleanupOldZipInstall"
-                  Directory="SystemFolder"
-                  ExeCommand="powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command &quot;Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'PenBoard') -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath (Join-Path ([Environment]::GetFolderPath('Programs')) 'PenBoard.lnk') -Force -ErrorAction SilentlyContinue&quot;"
+                  BinaryRef="SetupHelper"
+                  ExeCommand="cleanup-old"
                   Execute="deferred"
                   Impersonate="yes"
                   Return="ignore" />
 
     <CustomAction Id="UnblockInstalledFiles"
-                  Directory="SystemFolder"
-                  ExeCommand="powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command &quot;Get-ChildItem -LiteralPath '[INSTALLFOLDER]' -Recurse -File | Unblock-File&quot;"
+                  BinaryRef="SetupHelper"
+                  ExeCommand="unblock"
                   Execute="deferred"
                   Impersonate="yes"
                   Return="ignore" />
 
     <CustomAction Id="LaunchPenBoard"
-                  Directory="INSTALLFOLDER"
-                  ExeCommand="PenBoard.exe --daemon"
+                  BinaryRef="SetupHelper"
+                  ExeCommand="launch"
                   Execute="immediate"
                   Impersonate="yes"
                   Return="ignore" />
 
     <CustomAction Id="RemoveUserDataOnUninstall"
-                  Directory="SystemFolder"
-                  ExeCommand="powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command &quot;Remove-Item -LiteralPath (Join-Path $env:APPDATA 'PenBoard') -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'PenBoard') -Recurse -Force -ErrorAction SilentlyContinue&quot;"
+                  BinaryRef="SetupHelper"
+                  ExeCommand="remove-user-data"
                   Execute="deferred"
                   Impersonate="yes"
                   Return="ignore" />

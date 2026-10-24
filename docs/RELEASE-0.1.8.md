@@ -4,7 +4,7 @@ Windows ARM64 触控笔全屏手写 / 屏幕批注工具。
 
 ## 本版修复
 
-- **安装终端弹窗**：MSI 中的 PowerShell 自定义动作全部使用隐藏窗口，不再弹出一堆终端。
+- **安装终端弹窗**：MSI 改用原生 SetupHelper，不再启动 PowerShell，也不会弹出一堆终端。
 - **批注保存格式**：关闭批注或点“保存”时弹出选择，只保存 `PDF` 或 `PNG` 其中一种，不再同时保存。
 - **安装后启动**：完成页增加“启动 PenBoard / Launch PenBoard”复选框，默认勾选，安装完成后后台启动托盘程序。
 - **语言按钮颜色**：中文红色高亮，English 蓝色高亮；两种状态都明确亮起。
@@ -29,8 +29,8 @@ Windows ARM64 触控笔全屏手写 / 屏幕批注工具。
 ## SHA256
 
 ```text
-MSI:    2AC5A9952304B5F7FE2B26223D51CCA1EE08917A0F32FB833BF4BC6F7A1799FC
-便携版: 293FBA1106D1898A3C31ADCEF36D49E8CF9A3ABD53854307C8336B5A8228E20C
+MSI:    E2AD9A0D15962DD34C08FB06FFDC82A3E68B51EED9237586977B99E26F836BBB
+便携版: 00F1F673F1EACBC5D6E9A114372D2ABDAF6BD5E0C3F0D79F95E49D1AAA529440
 ```
 
 源码：https://github.com/qxsraiy/PenBoard

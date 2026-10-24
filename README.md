@@ -65,6 +65,8 @@ dotnet publish src/PenBoard.App/PenBoard.App.csproj `
   -c Release -r win-arm64 --self-contained true `
   -p:PublishSingleFile=false -o artifacts/arm64/app
 
+powershell -ExecutionPolicy Bypass -File installer/build-helper.ps1
+
 wix build -b installer installer/PenBoard.wxs -o artifacts/PenBoard-0.1.8-arm64.msi
 ```
 

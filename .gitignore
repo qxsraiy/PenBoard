@@ -8,6 +8,7 @@ msi-extract/
 installer/*.msi
 installer/Test*.wxs
 installer/Test*.msi
+installer/PenBoard.SetupHelper.*.exe
 *.log
 *.zip
 *.wixpdb
