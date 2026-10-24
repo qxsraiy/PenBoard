@@ -38,6 +38,8 @@ public sealed class TouchKeyboardInterceptor : IDisposable
 
     public bool Enabled { get; set; }
 
+    public long ClickSequence { get; private set; }
+
     public void Start(Func<IntPtr> overlayHandle)
     {
         _overlayHandle = overlayHandle;
@@ -262,6 +264,7 @@ public sealed class TouchKeyboardInterceptor : IDisposable
                     }
                 }
 
+                ClickSequence++;
                 var foreground = NativeMethods.GetForegroundWindow();
                 if (foreground != IntPtr.Zero && !IsKeyboardWindow(foreground))
                 {

@@ -54,6 +54,9 @@ public partial class MainWindow : Window, IDisposable
     private bool _formatClosesAfterSave;
     private bool _autoFocusInitialized;
     private bool _autoFocusChecking;
+    private bool _automationArmed;
+    private long _lastClickSequenceAtClose;
+    private long _lastOskKillTick;
     private string? _lastAutoFocusKey;
     private long _lastToggleTick;
     private long _openedAtTick;
@@ -476,6 +479,8 @@ public partial class MainWindow : Window, IDisposable
         Hide();
         _isOpen = false;
         _autoFocusInitialized = false;
+        _automationArmed = false;
+        _lastClickSequenceAtClose = _touchInterceptor.ClickSequence;
         _lastAutoFocusKey = null;
         _touchInterceptor.ResetTrigger();
         _savePromptVisible = false;
@@ -673,6 +678,8 @@ public partial class MainWindow : Window, IDisposable
         _settings.Save();
         _touchInterceptor.Enabled = enabled;
         _autoFocusInitialized = false;
+        _automationArmed = false;
+        _lastClickSequenceAtClose = _touchInterceptor.ClickSequence;
         _lastAutoFocusKey = null;
         if (enabled)
         {
@@ -695,7 +702,7 @@ public partial class MainWindow : Window, IDisposable
 
     private async void AutoFocusTimer_Tick(object? sender, EventArgs e)
     {
-        if (!_settings.AutoReplaceTouchKeyboard || _isOpen || _opening)
+        if (!_settings.AutoReplaceTouchKeyboard || _isOpen || _opening || !ShouldAutomate())
         {
             return;
         }
@@ -756,6 +763,27 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
+    private bool ShouldAutomate()
+    {
+        if (!_settings.AutoReplaceTouchKeyboard)
+        {
+            return false;
+        }
+
+        if (_automationArmed)
+        {
+            return true;
+        }
+
+        if (_touchInterceptor.ClickSequence != _lastClickSequenceAtClose)
+        {
+            _automationArmed = true;
+            return true;
+        }
+
+        return false;
+    }
+
     private void OverlayTopmostTimer_Tick(object? sender, EventArgs e)
     {
         if (!_isOpen || _hwnd == IntPtr.Zero)
@@ -769,6 +797,15 @@ public partial class MainWindow : Window, IDisposable
             0, 0, 0, 0,
             NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
         _touchInterceptor.HideTouchKeyboard(true);
+        if (_settings.AutoReplaceTouchKeyboard)
+        {
+            var now = Environment.TickCount64;
+            if (now - _lastOskKillTick > 1500)
+            {
+                _lastOskKillTick = now;
+                _oskSuppression.KillOskProcesses();
+            }
+        }
     }
 
     private static FocusInfo? GetFocusInfo()
@@ -800,7 +837,7 @@ public partial class MainWindow : Window, IDisposable
 
     private async void OnTouchPenInput(IntPtr target)
     {
-        if (!_settings.AutoReplaceTouchKeyboard || _isOpen || _opening)
+        if (!_settings.AutoReplaceTouchKeyboard || _isOpen || _opening || !ShouldAutomate())
         {
             return;
         }
