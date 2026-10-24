@@ -80,10 +80,10 @@ public sealed class TouchKeyboardInterceptor : IDisposable
         return visible;
     }
 
-    public bool HideTouchKeyboard()
+    public bool HideTouchKeyboard(bool force = false)
     {
         var now = Environment.TickCount64;
-        if (now - _lastHideTick < 1500)
+        if (!force && now - _lastHideTick < 1500)
         {
             return false;
         }
@@ -132,12 +132,27 @@ public sealed class TouchKeyboardInterceptor : IDisposable
 
         var className = GetClassName(hwnd);
         var title = GetWindowText(hwnd);
-        return processName.Equals("TabTip", StringComparison.OrdinalIgnoreCase) ||
-               processName.Equals("TextInputHost", StringComparison.OrdinalIgnoreCase) ||
-               className.Contains("IPTip", StringComparison.OrdinalIgnoreCase) ||
-               className.Contains("TextInput", StringComparison.OrdinalIgnoreCase) ||
-               title.Contains("触摸键盘", StringComparison.OrdinalIgnoreCase) ||
-               title.Contains("Touch keyboard", StringComparison.OrdinalIgnoreCase);
+        var known =
+            processName.Equals("TabTip", StringComparison.OrdinalIgnoreCase) ||
+            processName.Equals("TextInputHost", StringComparison.OrdinalIgnoreCase) ||
+            className.Contains("IPTip", StringComparison.OrdinalIgnoreCase) ||
+            className.Contains("TextInput", StringComparison.OrdinalIgnoreCase) ||
+            title.Contains("触摸键盘", StringComparison.OrdinalIgnoreCase) ||
+            title.Contains("Touch keyboard", StringComparison.OrdinalIgnoreCase);
+        if (!known)
+        {
+            return false;
+        }
+
+        // TextInputHost also owns tiny/helper windows. The real keyboard is a
+        // reasonably sized window, so ignore 1x1 or zero-sized hosts.
+        if (!NativeMethods.GetWindowRect(hwnd, out var rect))
+        {
+            return false;
+        }
+        var width = rect.Right - rect.Left;
+        var height = rect.Bottom - rect.Top;
+        return width >= 200 && height >= 100;
     }
 
     private static string ProcessName(IntPtr hwnd)
@@ -171,12 +186,13 @@ public sealed class TouchKeyboardInterceptor : IDisposable
             }
 
             var keyboardVisible = IsTouchKeyboardVisible();
+            var newlyVisible = keyboardVisible && !_keyboardWasVisible;
             if (keyboardVisible)
             {
-                HideTouchKeyboard();
+                HideTouchKeyboard(newlyVisible);
             }
 
-            if (keyboardVisible && !_keyboardWasVisible)
+            if (newlyVisible)
             {
                 Logger.Debug("Touch keyboard became visible; requesting overlay.");
             }

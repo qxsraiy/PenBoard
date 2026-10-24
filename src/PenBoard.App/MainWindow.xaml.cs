@@ -45,6 +45,7 @@ public partial class MainWindow : Window, IDisposable
     private bool _isOpen;
     private bool _opening;
     private bool _savePromptVisible;
+    private bool _formatPromptFromClose;
     private long _lastToggleTick;
     private long _openedAtTick;
     private bool _isRecognizing;
@@ -202,9 +203,13 @@ public partial class MainWindow : Window, IDisposable
             UpdateModeUi();
             if (_mode == OverlayMode.Text)
             {
-                _touchInterceptor.HideTouchKeyboard();
+                _touchInterceptor.HideTouchKeyboard(true);
             }
             ShowOverlay();
+            if (_mode == OverlayMode.Text)
+            {
+                _touchInterceptor.HideTouchKeyboard(true);
+            }
             Logger.Log($"OpenOverlay: mode={_mode}, target=0x{_targetHwnd.ToInt64():X}, detail={context.Detail}");
             Logger.Debug($"OpenOverlay shown: visible={IsVisible}, hwnd=0x{_hwnd.ToInt64():X}");
         }
@@ -249,14 +254,14 @@ public partial class MainWindow : Window, IDisposable
         Logger.Log($"CloseOverlay: mode={_mode}, strokes={InkCanvas.Strokes.Count}");
         if (_mode == OverlayMode.Annotation && InkCanvas.Strokes.Count > 0)
         {
-            ShowSavePrompt();
+            ShowSavePrompt(true);
             return;
         }
 
         HideOverlay();
     }
 
-    private void ShowSavePrompt()
+    private void ShowSavePrompt(bool closeAfterSave)
     {
         if (_savePromptVisible)
         {
@@ -264,15 +269,41 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _savePromptVisible = true;
-        SavePromptDetail.Text =
-            $"有 {InkCanvas.Strokes.Count} 个笔迹。请选择保存格式（只保存一种）：\n保存目录：{_settings.SaveDirectory}";
         SavePromptBackdrop.Visibility = Visibility.Visible;
         InkCanvas.IsHitTestVisible = false;
         Toolbar.IsEnabled = false;
         CandidateBar.Visibility = Visibility.Collapsed;
         _recognitionTimer.Stop();
         _candidateTimer.Stop();
-        Logger.Debug("Save prompt shown.");
+
+        if (closeAfterSave)
+        {
+            ShowClosePrompt();
+        }
+        else
+        {
+            ShowFormatPrompt();
+        }
+        Logger.Debug("Save prompt shown: " + (closeAfterSave ? "close" : "save"));
+    }
+
+    private void ShowClosePrompt()
+    {
+        _formatPromptFromClose = true;
+        SavePromptTitle.Text = "关闭批注？";
+        SavePromptDetail.Text =
+            $"有 {InkCanvas.Strokes.Count} 个笔迹。\n保存并关闭，还是舍弃？";
+        ClosePromptPanel.Visibility = Visibility.Visible;
+        FormatPromptPanel.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowFormatPrompt()
+    {
+        SavePromptTitle.Text = "选择保存格式";
+        SavePromptDetail.Text =
+            $"只保存一种格式。\n保存目录：{_settings.SaveDirectory}";
+        ClosePromptPanel.Visibility = Visibility.Collapsed;
+        FormatPromptPanel.Visibility = Visibility.Visible;
     }
 
     private void HideSavePrompt()
@@ -283,20 +314,51 @@ public partial class MainWindow : Window, IDisposable
         }
 
         _savePromptVisible = false;
+        _formatPromptFromClose = false;
         SavePromptBackdrop.Visibility = Visibility.Collapsed;
         InkCanvas.IsHitTestVisible = true;
         Toolbar.IsEnabled = true;
         Logger.Debug("Save prompt hidden.");
     }
 
-    private void SavePrompt_SavePdf_Click(object sender, RoutedEventArgs e)
+    private void ClosePrompt_Save_Click(object sender, RoutedEventArgs e)
+    {
+        _formatPromptFromClose = true;
+        ShowFormatPrompt();
+    }
+
+    private void ClosePrompt_Discard_Click(object sender, RoutedEventArgs e)
+    {
+        Logger.Log("ClosePrompt_Discard_Click");
+        HideSavePrompt();
+        HideOverlay();
+    }
+
+    private void ClosePrompt_Cancel_Click(object sender, RoutedEventArgs e)
+    {
+        HideSavePrompt();
+    }
+
+    private void FormatPng_Click(object sender, RoutedEventArgs e)
+    {
+        SaveSelected(ExportFormat.Png);
+    }
+
+    private void FormatPdf_Click(object sender, RoutedEventArgs e)
     {
         SaveSelected(ExportFormat.Pdf);
     }
 
-    private void SavePrompt_SavePng_Click(object sender, RoutedEventArgs e)
+    private void FormatCancel_Click(object sender, RoutedEventArgs e)
     {
-        SaveSelected(ExportFormat.Png);
+        if (_formatPromptFromClose)
+        {
+            ShowClosePrompt();
+        }
+        else
+        {
+            HideSavePrompt();
+        }
     }
 
     private void SaveSelected(ExportFormat format)
@@ -314,19 +376,6 @@ public partial class MainWindow : Window, IDisposable
             StatusText.Text = "保存失败：" + ex.Message;
             _tray?.ShowBalloon("保存失败", ex.Message, true);
         }
-    }
-
-    private void SavePrompt_Discard_Click(object sender, RoutedEventArgs e)
-    {
-        Logger.Log("SavePrompt_Discard_Click");
-        Logger.Debug("Save prompt: discard.");
-        HideSavePrompt();
-        HideOverlay();
-    }
-
-    private void SavePrompt_Cancel_Click(object sender, RoutedEventArgs e)
-    {
-        HideSavePrompt();
     }
 
     private IntPtr ResolveTarget(IntPtr hint)
@@ -566,7 +615,7 @@ public partial class MainWindow : Window, IDisposable
         Logger.Log("Auto replace touch keyboard: " + enabled);
         if (enabled)
         {
-            _touchInterceptor.HideTouchKeyboard();
+            _touchInterceptor.HideTouchKeyboard(true);
             _tray?.ShowBalloon(
                 "自动化已开启",
                 "触控笔点击输入框或系统手写板出现时，会尝试用 PenBoard 全屏手写替换。",
@@ -602,7 +651,7 @@ public partial class MainWindow : Window, IDisposable
                 return;
             }
 
-            _touchInterceptor.HideTouchKeyboard();
+            _touchInterceptor.HideTouchKeyboard(true);
             Logger.Debug("OnTouchPenInput: opening full-screen input.");
             OpenOverlay(target);
         }
@@ -960,7 +1009,7 @@ public partial class MainWindow : Window, IDisposable
             _mode = OverlayMode.Text;
             _screenshot = null;
             UpdateModeUi();
-            _touchInterceptor.HideTouchKeyboard();
+            _touchInterceptor.HideTouchKeyboard(true);
         }
     }
 
@@ -1106,7 +1155,7 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        ShowSavePrompt();
+        ShowSavePrompt(false);
     }
 
     private void Close_Click(object sender, RoutedEventArgs e)

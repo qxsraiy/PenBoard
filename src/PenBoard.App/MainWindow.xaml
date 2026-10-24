@@ -133,7 +133,8 @@
                     BorderBrush="#55FFFFFF"
                     BorderThickness="1">
                 <StackPanel MinWidth="620">
-                    <TextBlock Text="保存批注？"
+                    <TextBlock x:Name="SavePromptTitle"
+                               Text="保存批注"
                                FontSize="22"
                                FontWeight="SemiBold"
                                Foreground="#FFFFFFFF" />
@@ -143,22 +144,39 @@
                                Foreground="#CCFFFFFF"
                                Margin="0,8,0,20"
                                TextWrapping="Wrap" />
-                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                        <Button Content="保存 PDF"
+
+                    <StackPanel x:Name="ClosePromptPanel"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Center">
+                        <Button Content="保存并关闭"
                                 Style="{StaticResource ToolButton}"
-                                Click="SavePrompt_SavePdf_Click"
+                                Click="ClosePrompt_Save_Click"
                                 Padding="16,8" />
-                        <Button Content="保存 PNG"
+                        <Button Content="舍弃并关闭"
                                 Style="{StaticResource ToolButton}"
-                                Click="SavePrompt_SavePng_Click"
-                                Padding="16,8" />
-                        <Button Content="不保存，关闭"
-                                Style="{StaticResource ToolButton}"
-                                Click="SavePrompt_Discard_Click"
+                                Click="ClosePrompt_Discard_Click"
                                 Padding="16,8" />
                         <Button Content="取消"
                                 Style="{StaticResource ToolButton}"
-                                Click="SavePrompt_Cancel_Click"
+                                Click="ClosePrompt_Cancel_Click"
+                                Padding="16,8" />
+                    </StackPanel>
+
+                    <StackPanel x:Name="FormatPromptPanel"
+                                Orientation="Horizontal"
+                                HorizontalAlignment="Center"
+                                Visibility="Collapsed">
+                        <Button Content="PNG"
+                                Style="{StaticResource ToolButton}"
+                                Click="FormatPng_Click"
+                                Padding="22,8" />
+                        <Button Content="PDF"
+                                Style="{StaticResource ToolButton}"
+                                Click="FormatPdf_Click"
+                                Padding="22,8" />
+                        <Button Content="取消"
+                                Style="{StaticResource ToolButton}"
+                                Click="FormatCancel_Click"
                                 Padding="16,8" />
                     </StackPanel>
                 </StackPanel>
