@@ -18,6 +18,7 @@
     <Binary Id="SetupHelper" SourceFile="PenBoard.SetupHelper.arm64.exe" />
     <Property Id="ARPPRODUCTICON" Value="PenBoardIcon" />
     <Property Id="LAUNCHAPP" Value="1" />
+    <Property Id="LAUNCHTEXT" Value="启动 PenBoard" />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsFolder" Name="Programs">
@@ -132,12 +133,14 @@
         <Control Id="Chinese" Type="PushButton" X="55" Y="150" Width="110" Height="30"
                  Default="yes" Text="中文">
           <Publish Property="SELECTED_LANG" Value="zh" Order="1" />
-          <Publish Event="NewDialog" Value="WelcomeDlg" Order="2" />
+          <Publish Property="LAUNCHTEXT" Value="启动 PenBoard" Order="2" />
+          <Publish Event="NewDialog" Value="WelcomeDlg" Order="3" />
         </Control>
         <Control Id="English" Type="PushButton" X="205" Y="150" Width="110" Height="30"
                  Text="English">
           <Publish Property="SELECTED_LANG" Value="en" Order="1" />
-          <Publish Event="NewDialog" Value="WelcomeDlg" Order="2" />
+          <Publish Property="LAUNCHTEXT" Value="Launch PenBoard" Order="2" />
+          <Publish Event="NewDialog" Value="WelcomeDlg" Order="3" />
         </Control>
         <Control Id="CancelZh" Type="PushButton" X="304" Y="243" Width="56" Height="17"
                  Cancel="yes" Text="取消" Hidden="yes"
@@ -248,7 +251,7 @@
                  ShowCondition="SELECTED_LANG=&quot;en&quot;" />
         <Control Id="Launch" Type="CheckBox" X="20" Y="185" Width="320" Height="18"
                  Property="LAUNCHAPP" CheckBoxValue="1"
-                 Text="启动 PenBoard / Launch PenBoard" />
+                 Text="[LAUNCHTEXT]" />
         <Control Id="FinishZh" Type="PushButton" X="236" Y="243" Width="56" Height="17"
                  Default="yes" Text="完成" Hidden="yes"
                  ShowCondition="SELECTED_LANG=&quot;zh&quot;">
