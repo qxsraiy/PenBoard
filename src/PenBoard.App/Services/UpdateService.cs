@@ -102,11 +102,19 @@ public sealed class UpdateService
             }
 
             Logger.Log($"Update downloaded: {file}");
-            MessageBox.Show("下载完成，点击确定开始安装。", "检查更新");
-            Process.Start(new ProcessStartInfo("msiexec.exe", $"/i \"{file}\" /passive")
+            MessageBox.Show("下载完成，点击确定后 PenBoard 会退出并开始安装。", "检查更新");
+
+            // Start the installer only after this process has exited. Starting
+            // msiexec in-process caused the first install attempt to race the
+            // running PenBoard and fail; the second attempt then succeeded.
+            var command = $"/c timeout /t 2 /nobreak >nul & msiexec.exe /i \"{file}\" /passive /norestart";
+            Process.Start(new ProcessStartInfo("cmd.exe", command)
             {
-                UseShellExecute = true
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WindowStyle = ProcessWindowStyle.Hidden
             });
+            Logger.Log("Update installer scheduled after exit.");
             Application.Current.Shutdown();
         }
         catch (Exception ex)

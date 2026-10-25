@@ -45,12 +45,12 @@ public sealed class CaretProbe
         return win32;
     }
 
-    public async Task<CaretContext> ProbeAsync(IntPtr target, int timeoutMs = 400)
+    public async Task<CaretContext> ProbeAsync(IntPtr target, int timeoutMs = 400, int clickX = 0, int clickY = 0)
     {
         var win32 = ProbeWin32(target);
         try
         {
-            var uiaTask = Task.Run(() => ProbeUia(target));
+            var uiaTask = Task.Run(() => ProbeUia(target, clickX, clickY));
             var completed = await Task.WhenAny(uiaTask, Task.Delay(timeoutMs)).ConfigureAwait(false);
             if (completed == uiaTask && uiaTask.Status == TaskStatus.RanToCompletion && uiaTask.Result is { } uia)
             {
@@ -137,10 +137,31 @@ public sealed class CaretProbe
         }
     }
 
-    private static CaretContext ProbeUia(IntPtr target)
+    private static CaretContext ProbeUia(IntPtr target, int clickX = 0, int clickY = 0)
     {
         try
         {
+            if (clickX != 0 || clickY != 0)
+            {
+                try
+                {
+                    var pointElement = AutomationElement.FromPoint(new System.Windows.Point(clickX, clickY));
+                    for (var i = 0; i < 7 && pointElement is not null; i++)
+                    {
+                        var pointResult = EvaluateElement(pointElement, target, "point");
+                        if (pointResult.IsText)
+                        {
+                            return pointResult;
+                        }
+                        pointElement = TreeWalker.ControlViewWalker.GetParent(pointElement);
+                    }
+                }
+                catch
+                {
+                    // Point lookup can fail for protected windows; fall back to focus.
+                }
+            }
+
             var focused = AutomationElement.FocusedElement;
             if (focused.Current.ProcessId == Environment.ProcessId)
             {

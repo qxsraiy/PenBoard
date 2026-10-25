@@ -24,6 +24,8 @@ public sealed class TouchKeyboardInterceptor : IDisposable
     private long _lastTriggerTick;
     private long _lastHideTick;
     private IntPtr _lastNonKeyboardForeground;
+    private int _lastClickX;
+    private int _lastClickY;
     private bool _keyboardWasVisible;
     private bool _disposed;
 
@@ -36,7 +38,7 @@ public sealed class TouchKeyboardInterceptor : IDisposable
         _timer.Tick += Timer_Tick;
     }
 
-    public event Action<IntPtr>? TouchPenInput;
+    public event Action<IntPtr, int, int>? TouchPenInput;
 
     public bool Enabled { get; set; }
 
@@ -247,8 +249,8 @@ public sealed class TouchKeyboardInterceptor : IDisposable
                 return;
             }
 
-            Logger.Debug($"TouchKeyboardInterceptor trigger: target=0x{target.ToInt64():X} foreground=0x{foreground.ToInt64():X} touch={touchRecent} keyboard={keyboardVisible}");
-            TouchPenInput?.Invoke(target);
+            Logger.Debug($"TouchKeyboardInterceptor trigger: target=0x{target.ToInt64():X} foreground=0x{foreground.ToInt64():X} touch={touchRecent} keyboard={keyboardVisible} point={_lastClickX},{_lastClickY}");
+            TouchPenInput?.Invoke(target, _lastClickX, _lastClickY);
         }
         catch (Exception ex)
         {
@@ -265,7 +267,8 @@ public sealed class TouchKeyboardInterceptor : IDisposable
         uint dwEventThread,
         uint dwmsEventTime)
     {
-        if (eventType != NativeMethods.EVENT_OBJECT_SHOW ||
+        if (!Enabled ||
+            eventType != NativeMethods.EVENT_OBJECT_SHOW ||
             hwnd == IntPtr.Zero ||
             !NativeMethods.IsWindowVisible(hwnd))
         {
@@ -310,12 +313,15 @@ public sealed class TouchKeyboardInterceptor : IDisposable
 
                 ClickSequence++;
                 var foreground = NativeMethods.GetForegroundWindow();
-                if (foreground != IntPtr.Zero && !IsKeyboardWindow(foreground))
+                var clicked = hit != IntPtr.Zero ? hit : foreground;
+                if (clicked != IntPtr.Zero && !IsKeyboardWindow(clicked))
                 {
-                    _lastNonKeyboardForeground = foreground;
+                    _lastNonKeyboardForeground = clicked;
                 }
 
                 _lastTouchTick = Environment.TickCount64;
+                _lastClickX = data.pt.X;
+                _lastClickY = data.pt.Y;
                 Logger.Debug($"Mouse/pen click detected: x={data.pt.X}, y={data.pt.Y}, extra=0x{data.dwExtraInfo.ToUInt64():X}");
             }
         }

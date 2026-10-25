@@ -238,12 +238,12 @@ public partial class MainWindow : Window, IDisposable
 
             ResetForOpen();
             UpdateModeUi();
-            if (_mode == OverlayMode.Text)
+            if (_mode == OverlayMode.Text && _settings.AutoReplaceTouchKeyboard)
             {
                 _touchInterceptor.HideTouchKeyboard(true);
             }
             ShowOverlay();
-            if (_mode == OverlayMode.Text)
+            if (_mode == OverlayMode.Text && _settings.AutoReplaceTouchKeyboard)
             {
                 _touchInterceptor.HideTouchKeyboard(true);
             }
@@ -751,14 +751,7 @@ public partial class MainWindow : Window, IDisposable
             }
 
             var context = await _caretProbe.ProbeAsync(target, 300);
-            Logger.Debug($"AutoFocus changed: key={focus.Value.Key}, target=0x{target.ToInt64():X}, text={context.IsText}, detail={context.Detail}");
-            if (!context.IsText)
-            {
-                return;
-            }
-
-            _touchInterceptor.HideTouchKeyboard(true);
-            OpenOverlay(target);
+            Logger.Debug($"AutoFocus changed (observation only): key={focus.Value.Key}, target=0x{target.ToInt64():X}, text={context.IsText}, detail={context.Detail}");
         }
         catch (Exception ex)
         {
@@ -777,7 +770,10 @@ public partial class MainWindow : Window, IDisposable
             return;
         }
 
-        _touchInterceptor.HideTouchKeyboard(true);
+        if (_settings.AutoReplaceTouchKeyboard)
+        {
+            _touchInterceptor.HideTouchKeyboard(true);
+        }
         var now = Environment.TickCount64;
         if (now - _lastOskKillTick > 1500)
         {
@@ -819,7 +815,10 @@ public partial class MainWindow : Window, IDisposable
             NativeMethods.HWND_TOPMOST,
             0, 0, 0, 0,
             NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
-        _touchInterceptor.HideTouchKeyboard(true);
+        if (_settings.AutoReplaceTouchKeyboard)
+        {
+            _touchInterceptor.HideTouchKeyboard(true);
+        }
         if (_settings.AutoReplaceTouchKeyboard)
         {
             var now = Environment.TickCount64;
@@ -858,7 +857,7 @@ public partial class MainWindow : Window, IDisposable
         public IntPtr Hwnd { get; }
     }
 
-    private async void OnTouchPenInput(IntPtr target)
+    private async void OnTouchPenInput(IntPtr target, int clickX, int clickY)
     {
         if (!_settings.AutoReplaceTouchKeyboard || _isOpen || _opening || !ShouldAutomate())
         {
@@ -878,8 +877,8 @@ public partial class MainWindow : Window, IDisposable
                 return;
             }
 
-            Logger.Debug($"OnTouchPenInput: probing 0x{target.ToInt64():X}");
-            var context = await _caretProbe.ProbeAsync(target, 300);
+            Logger.Debug($"OnTouchPenInput: probing 0x{target.ToInt64():X} point={clickX},{clickY}");
+            var context = await _caretProbe.ProbeAsync(target, 300, clickX, clickY);
             if (!context.IsText)
             {
                 Logger.Debug("OnTouchPenInput: target has no caret; leaving system keyboard alone.");
@@ -1277,7 +1276,10 @@ public partial class MainWindow : Window, IDisposable
         _mode = OverlayMode.Text;
         _screenshot = null;
         UpdateModeUi();
-        _touchInterceptor.HideTouchKeyboard(true);
+        if (_settings.AutoReplaceTouchKeyboard)
+        {
+            _touchInterceptor.HideTouchKeyboard(true);
+        }
     }
 
     private void Pen_Click(object sender, RoutedEventArgs e)
