@@ -33,7 +33,7 @@ public sealed class UpdateService
             }
 
             var current = Normalize(Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0));
-            if (Normalize(latest) <= current)
+            if (CompareVersionParts(Normalize(latest), current) <= 0)
             {
                 MessageBox.Show($"当前已是最新版本：{current}", "检查更新");
                 return;
@@ -109,32 +109,26 @@ public sealed class UpdateService
             Logger.Log($"Update downloaded: {file}");
             MessageBox.Show("下载完成，点击确定后 PenBoard 会退出并开始安装。", "检查更新");
 
-            // Wait explicitly for this process to exit, then start msiexec.
-            // A fixed timeout was not enough on slower ARM64 machines and
-            // caused the first install attempt to fail.
-            var pid = Environment.ProcessId;
+            // Start msiexec directly. The previous generated batch waited for
+            // the PenBoard PID, but on the user's machine the first attempt
+            // exited without ever starting the installer. Starting msiexec
+            // directly makes the handoff observable and avoids cmd quoting.
             var logPath = Path.Combine(Path.GetTempPath(), "PenBoard-update.log");
-            var batchPath = Path.Combine(Path.GetTempPath(), "PenBoard-update-launch.cmd");
-            var batch = string.Join("\r\n", new[]
+            var arguments = $"/i \"{file}\" /passive /norestart /l*v \"{logPath}\"";
+            var installer = Process.Start(new ProcessStartInfo("msiexec.exe", arguments)
             {
-                "@echo off",
-                ":wait",
-                $"tasklist /FI \"PID eq {pid}\" 2>nul | find \"{pid}\" >nul",
-                "if not errorlevel 1 (",
-                "  timeout /t 1 /nobreak >nul",
-                "  goto wait",
-                ")",
-                $"msiexec.exe /i \"{file}\" /passive /norestart /l*v \"{logPath}\"",
-                "exit /b"
+                UseShellExecute = true
             });
-            File.WriteAllText(batchPath, batch, Encoding.Default);
-            Process.Start(new ProcessStartInfo("cmd.exe", $"/c call \"{batchPath}\"")
+            if (installer is null)
             {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden
-            });
-            Logger.Log($"Update installer waiting for PID {pid}; log={logPath}");
+                MessageBox.Show("无法启动 Windows Installer。", "检查更新", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            Logger.Log($"Update installer started: pid={installer.Id}, log={logPath}");
+            await Task.Delay(800);
+            Logger.Log("Exiting PenBoard for update.");
+            Environment.Exit(0);
             Application.Current.Shutdown();
         }
         catch (Exception ex)
@@ -149,4 +143,23 @@ public sealed class UpdateService
 
     private static Version Normalize(Version version)
         => new(version.Major, Math.Max(0, version.Minor), Math.Max(0, version.Build));
+
+    /// <summary>
+    /// Compare major first, then minor, then build. Each component is a single
+    /// digit in PenBoard's version scheme (0.2.9 -> 0.3.0).
+    /// </summary>
+    private static int CompareVersionParts(Version left, Version right)
+    {
+        var result = left.Major.CompareTo(right.Major);
+        if (result != 0)
+        {
+            return result;
+        }
+        result = left.Minor.CompareTo(right.Minor);
+        if (result != 0)
+        {
+            return result;
+        }
+        return left.Build.CompareTo(right.Build);
+    }
 }

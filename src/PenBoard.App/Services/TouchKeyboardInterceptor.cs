@@ -96,6 +96,30 @@ public sealed class TouchKeyboardInterceptor : IDisposable
         return visible;
     }
 
+    public void CloseTouchKeyboard()
+    {
+        HideTouchKeyboard(true);
+        foreach (var name in new[] { "TabTip", "TextInputHost" })
+        {
+            foreach (var process in Process.GetProcessesByName(name))
+            {
+                try
+                {
+                    process.Kill();
+                    Logger.Debug($"CloseTouchKeyboard: killed {name} ({process.Id})");
+                }
+                catch
+                {
+                    // ignore
+                }
+                finally
+                {
+                    process.Dispose();
+                }
+            }
+        }
+    }
+
     public void ResetTrigger()
     {
         _lastTriggerTick = 0;

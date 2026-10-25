@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Ink;
 using System.Windows.Input;
@@ -44,6 +45,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly InputPillWindow _inputPill = new();
 
     private TrayService? _tray;
+    private DispatcherTimer? _pillTimer;
+    private bool _pillTimerBusy;
     private IntPtr _pillTarget;
     private int _pillProbeVersion;
     private OverlayMode _mode = OverlayMode.Text;
@@ -111,9 +114,15 @@ public partial class MainWindow : Window, IDisposable
         _touchInterceptor = new TouchKeyboardInterceptor();
         _inputPill.Clicked += OnInputPillClicked;
         _clickWatcher.Clicked += OnGlobalClick;
+        _pillTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(700)
+        };
+        _pillTimer.Tick += PillTimer_Tick;
         if (_settings.ShowInputPill)
         {
             _clickWatcher.Start();
+            _pillTimer.Start();
         }
 
         ApplyPenAttributes();
@@ -215,12 +224,12 @@ public partial class MainWindow : Window, IDisposable
             UpdateModeUi();
             if (_mode == OverlayMode.Text)
             {
-                _touchInterceptor.HideTouchKeyboard(true);
+                _touchInterceptor.CloseTouchKeyboard();
             }
             ShowOverlay();
             if (_mode == OverlayMode.Text)
             {
-                _touchInterceptor.HideTouchKeyboard(true);
+                _touchInterceptor.CloseTouchKeyboard();
             }
             Logger.Log($"OpenOverlay: mode={_mode}, target=0x{_targetHwnd.ToInt64():X}, detail={context.Detail}");
             Logger.Debug($"OpenOverlay shown: visible={IsVisible}, hwnd=0x{_hwnd.ToInt64():X}");
@@ -632,13 +641,78 @@ public partial class MainWindow : Window, IDisposable
         if (enabled)
         {
             _clickWatcher.Start();
+            _pillTimer?.Start();
         }
         else
         {
             _clickWatcher.Stop();
+            _pillTimer?.Stop();
             _inputPill.HidePill();
         }
         Logger.Log("Show input pill: " + enabled);
+    }
+
+    private async void PillTimer_Tick(object? sender, EventArgs e)
+    {
+        if (!_settings.ShowInputPill || _isOpen || _opening || _pillTimerBusy)
+        {
+            if (!_settings.ShowInputPill)
+            {
+                _inputPill.HidePill();
+            }
+            return;
+        }
+
+        _pillTimerBusy = true;
+        try
+        {
+            var focus = await Task.Run(() =>
+            {
+                try
+                {
+                    var element = AutomationElement.FocusedElement;
+                    return (element.Current.ProcessId, new IntPtr(element.Current.NativeWindowHandle));
+                }
+                catch
+                {
+                    return (0, IntPtr.Zero);
+                }
+            });
+
+            if (focus.Item1 == Environment.ProcessId)
+            {
+                return;
+            }
+
+            var target = focus.Item2 != IntPtr.Zero && NativeMethods.IsWindow(focus.Item2)
+                ? focus.Item2
+                : NativeMethods.GetForegroundWindow();
+            if (target == IntPtr.Zero || target == _hwnd)
+            {
+                return;
+            }
+
+            var context = await _caretProbe.ProbeAsync(target, 300);
+            if (!context.IsText)
+            {
+                _inputPill.HidePill();
+                return;
+            }
+
+            _pillTarget = target;
+            var cursor = System.Windows.Forms.Cursor.Position;
+            var x = context.CaretRect.IsEmpty ? cursor.X + 12 : context.CaretRect.Right + 8;
+            var y = context.CaretRect.IsEmpty ? cursor.Y + 18 : context.CaretRect.Top;
+            _inputPill.ShowAt(x, y);
+        }
+        catch (Exception ex)
+        {
+            Logger.Debug("PillTimer: " + ex.Message);
+        }
+        finally
+        {
+            _pillTimerBusy = false;
+        }
     }
 
     private async void OnGlobalClick(int screenX, int screenY)
@@ -699,7 +773,7 @@ public partial class MainWindow : Window, IDisposable
         {
             target = NativeMethods.GetForegroundWindow();
         }
-        _touchInterceptor.HideTouchKeyboard(true);
+        _touchInterceptor.CloseTouchKeyboard();
         OpenOverlay(target);
     }
 
@@ -742,6 +816,7 @@ public partial class MainWindow : Window, IDisposable
             _candidateTimer.Stop();
             _touchInterceptor.Dispose();
             _clickWatcher.Dispose();
+            _pillTimer?.Stop();
             _inputPill.Close();
             if (_hotkeyRegistered && _hwnd != IntPtr.Zero)
             {
@@ -774,6 +849,7 @@ public partial class MainWindow : Window, IDisposable
             _candidateTimer.Stop();
             _touchInterceptor.Dispose();
             _clickWatcher.Dispose();
+            _pillTimer?.Stop();
             _inputPill.Close();
             if (_hotkeyRegistered && _hwnd != IntPtr.Zero)
             {
@@ -1111,7 +1187,7 @@ public partial class MainWindow : Window, IDisposable
         _mode = OverlayMode.Text;
         _screenshot = null;
         UpdateModeUi();
-        _touchInterceptor.HideTouchKeyboard(true);
+        _touchInterceptor.CloseTouchKeyboard();
     }
 
     private void Pen_Click(object sender, RoutedEventArgs e)
