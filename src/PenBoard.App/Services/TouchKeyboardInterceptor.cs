@@ -17,6 +17,8 @@ public sealed class TouchKeyboardInterceptor : IDisposable
     private readonly DispatcherTimer _timer;
     private NativeMethods.LowLevelMouseProc? _hookProc;
     private IntPtr _hook;
+    private NativeMethods.WinEventDelegate? _winEventProc;
+    private IntPtr _winEventHook;
     private Func<IntPtr>? _overlayHandle;
     private long _lastTouchTick;
     private long _lastTriggerTick;
@@ -49,7 +51,17 @@ public sealed class TouchKeyboardInterceptor : IDisposable
             _hookProc,
             NativeMethods.GetModuleHandle(null),
             0);
-        Logger.Log("TouchKeyboardInterceptor hook=" + (_hook != IntPtr.Zero));
+        _winEventProc = OnWindowShown;
+        _winEventHook = NativeMethods.SetWinEventHook(
+            NativeMethods.EVENT_OBJECT_SHOW,
+            NativeMethods.EVENT_OBJECT_SHOW,
+            IntPtr.Zero,
+            _winEventProc,
+            0,
+            0,
+            NativeMethods.WINEVENT_OUTOFCONTEXT | NativeMethods.WINEVENT_SKIPOWNPROCESS);
+        Logger.Log("TouchKeyboardInterceptor hook=" + (_hook != IntPtr.Zero) +
+                   " winEvent=" + (_winEventHook != IntPtr.Zero));
         _timer.Start();
     }
 
@@ -244,6 +256,38 @@ public sealed class TouchKeyboardInterceptor : IDisposable
         }
     }
 
+    private void OnWindowShown(
+        IntPtr hWinEventHook,
+        uint eventType,
+        IntPtr hwnd,
+        int idObject,
+        int idChild,
+        uint dwEventThread,
+        uint dwmsEventTime)
+    {
+        if (eventType != NativeMethods.EVENT_OBJECT_SHOW ||
+            hwnd == IntPtr.Zero ||
+            !NativeMethods.IsWindowVisible(hwnd))
+        {
+            return;
+        }
+
+        try
+        {
+            var process = ProcessName(hwnd);
+            if (process.Equals("TabTip", StringComparison.OrdinalIgnoreCase) ||
+                process.Equals("TextInputHost", StringComparison.OrdinalIgnoreCase))
+            {
+                NativeMethods.ShowWindow(hwnd, NativeMethods.SW_HIDE);
+                Logger.Debug($"WinEvent OSK show hooked: process={process} hwnd=0x{hwnd.ToInt64():X}");
+            }
+        }
+        catch
+        {
+            // The window may already be gone.
+        }
+    }
+
     private IntPtr HookCallback(int nCode, IntPtr wParam, IntPtr lParam)
     {
         try
@@ -311,6 +355,12 @@ public sealed class TouchKeyboardInterceptor : IDisposable
             NativeMethods.UnhookWindowsHookEx(_hook);
             _hook = IntPtr.Zero;
         }
+        if (_winEventHook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWinEvent(_winEventHook);
+            _winEventHook = IntPtr.Zero;
+        }
+        _winEventProc = null;
         _hookProc = null;
     }
 }

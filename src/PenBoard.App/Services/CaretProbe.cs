@@ -320,6 +320,7 @@ public sealed class CaretProbe
             var controlType = element.Current.ControlType;
             var isEnabled = element.Current.IsEnabled;
             var isKeyboardFocusable = element.Current.IsKeyboardFocusable;
+            var hasFocus = element.Current.HasKeyboardFocus;
             var processId = element.Current.ProcessId;
             var name = element.Current.Name ?? "";
             var className = element.Current.ClassName ?? "";
@@ -375,8 +376,31 @@ public sealed class CaretProbe
             var documentEditable = isDocument &&
                                    (isWord || isNotepad || (hasValuePattern && !readOnly));
 
-            var editable = isEnabled && isKeyboardFocusable &&
-                           (editEditable || comboEditable || documentEditable);
+            // Chromium/Electron contenteditable controls (QQ, Teams, Discord,
+            // CodeMirror, ProseMirror, Monaco...) often expose ControlType.Group
+            // or Pane plus a TextPattern instead of an Edit control. Accept them
+            // only when the class looks like an editor; otherwise a whole web
+            // page's text container would be mistaken for an input box.
+            var editorClass =
+                className.Contains("ProseMirror", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("CodeMirror", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("Editor", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("contenteditable", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("ql-editor", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("ace_editor", StringComparison.OrdinalIgnoreCase) ||
+                className.Contains("monaco", StringComparison.OrdinalIgnoreCase);
+            var containerEditable =
+                (controlType == ControlType.Group ||
+                 controlType == ControlType.Pane ||
+                 controlType == ControlType.Custom) &&
+                hasTextPattern &&
+                editorClass &&
+                !readOnly &&
+                (hasFocus || isKeyboardFocusable);
+
+            var editable = isEnabled &&
+                           (isKeyboardFocusable || hasFocus) &&
+                           (editEditable || comboEditable || documentEditable || containerEditable);
 
             return new CaretContext
             {
@@ -384,7 +408,7 @@ public sealed class CaretProbe
                 TargetHwnd = target,
                 CaretRect = caretRect,
                 Source = "UIA",
-                Detail = $"{source} type={controlType.ProgrammaticName} name={Truncate(name, 48)} class={className} pid={processId} value={hasValuePattern} readOnly={readOnly} text={hasTextPattern} word={isWord}"
+                Detail = $"{source} type={controlType.ProgrammaticName} name={Truncate(name, 48)} class={className} pid={processId} value={hasValuePattern} readOnly={readOnly} text={hasTextPattern} focus={hasFocus} word={isWord}"
             };
         }
         catch (Exception ex)

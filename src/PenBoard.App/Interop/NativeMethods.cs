@@ -149,6 +149,32 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
+    public delegate void WinEventDelegate(
+        IntPtr hWinEventHook,
+        uint eventType,
+        IntPtr hwnd,
+        int idObject,
+        int idChild,
+        uint dwEventThread,
+        uint dwmsEventTime);
+
+    [DllImport("user32.dll")]
+    public static extern IntPtr SetWinEventHook(
+        uint eventMin,
+        uint eventMax,
+        IntPtr hmodWinEventProc,
+        WinEventDelegate lpfnWinEventProc,
+        uint idProcess,
+        uint idThread,
+        uint dwFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    public const uint EVENT_OBJECT_SHOW = 0x8002;
+    public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+    public const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
+
     [DllImport("user32.dll")]
     public static extern IntPtr WindowFromPoint(POINT point);
 
