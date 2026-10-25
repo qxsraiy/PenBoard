@@ -40,8 +40,12 @@ public partial class MainWindow : Window, IDisposable
     private readonly List<Button> _colorButtons = new();
     private readonly List<Button> _widthButtons = new();
     private readonly TouchKeyboardInterceptor _touchInterceptor;
+    private readonly InputClickWatcher _clickWatcher = new();
+    private readonly InputPillWindow _inputPill = new();
 
     private TrayService? _tray;
+    private IntPtr _pillTarget;
+    private int _pillProbeVersion;
     private OverlayMode _mode = OverlayMode.Text;
     private bool _isOpen;
     private bool _opening;
@@ -99,10 +103,18 @@ public partial class MainWindow : Window, IDisposable
             _settings.DebugLogging,
             OnDebugLoggingChanged,
             OpenLogFolder,
+            _settings.ShowInputPill,
+            OnShowInputPillChanged,
             CheckForUpdates);
 
         // Used only to close the system touch keyboard when a text caret exists.
         _touchInterceptor = new TouchKeyboardInterceptor();
+        _inputPill.Clicked += OnInputPillClicked;
+        _clickWatcher.Clicked += OnGlobalClick;
+        if (_settings.ShowInputPill)
+        {
+            _clickWatcher.Start();
+        }
 
         ApplyPenAttributes();
         UpdateToolHighlights();
@@ -149,6 +161,8 @@ public partial class MainWindow : Window, IDisposable
         _opening = true;
         _isOpen = true;
         Logger.Debug($"OpenOverlay begin: hint=0x{targetHint.ToInt64():X}");
+        _pillProbeVersion++;
+        _inputPill.HidePill();
         try
         {
             _targetHwnd = ResolveTarget(targetHint);
@@ -444,6 +458,7 @@ public partial class MainWindow : Window, IDisposable
     private void HideOverlay()
     {
         Logger.Log("HideOverlay");
+        _inputPill.HidePill();
         Hide();
         _isOpen = false;
         _savePromptVisible = false;
@@ -610,6 +625,84 @@ public partial class MainWindow : Window, IDisposable
         }
     }
 
+    private void OnShowInputPillChanged(bool enabled)
+    {
+        _settings.ShowInputPill = enabled;
+        _settings.Save();
+        if (enabled)
+        {
+            _clickWatcher.Start();
+        }
+        else
+        {
+            _clickWatcher.Stop();
+            _inputPill.HidePill();
+        }
+        Logger.Log("Show input pill: " + enabled);
+    }
+
+    private async void OnGlobalClick(int screenX, int screenY)
+    {
+        if (!_settings.ShowInputPill || _isOpen || _opening)
+        {
+            _inputPill.HidePill();
+            return;
+        }
+
+        if (_inputPill.ContainsScreenPoint(screenX, screenY))
+        {
+            return;
+        }
+
+        _inputPill.HidePill();
+        var hit = NativeMethods.WindowFromPoint(new NativeMethods.POINT { X = screenX, Y = screenY });
+        if (hit == IntPtr.Zero)
+        {
+            hit = NativeMethods.GetForegroundWindow();
+        }
+        if (hit == IntPtr.Zero || hit == _hwnd)
+        {
+            return;
+        }
+
+        NativeMethods.GetWindowThreadProcessId(hit, out var pid);
+        if (pid == (uint)Environment.ProcessId)
+        {
+            return;
+        }
+
+        var version = ++_pillProbeVersion;
+        await Task.Delay(120);
+        if (version != _pillProbeVersion || _isOpen || !_settings.ShowInputPill)
+        {
+            return;
+        }
+
+        var context = await _caretProbe.ProbeAsync(hit, 300, screenX, screenY);
+        Logger.Debug($"InputPill probe: hit=0x{hit.ToInt64():X}, text={context.IsText}, detail={context.Detail}");
+        if (version != _pillProbeVersion || !context.IsText)
+        {
+            return;
+        }
+
+        _pillTarget = hit;
+        var x = context.CaretRect.IsEmpty ? screenX + 12 : context.CaretRect.Right + 8;
+        var y = context.CaretRect.IsEmpty ? screenY + 18 : context.CaretRect.Top;
+        _inputPill.ShowAt(x, y);
+    }
+
+    private void OnInputPillClicked()
+    {
+        _inputPill.HidePill();
+        var target = _pillTarget;
+        if (target == IntPtr.Zero || !NativeMethods.IsWindow(target))
+        {
+            target = NativeMethods.GetForegroundWindow();
+        }
+        _touchInterceptor.HideTouchKeyboard(true);
+        OpenOverlay(target);
+    }
+
     private async void CheckForUpdates()
     {
         if (_isOpen)
@@ -648,6 +741,8 @@ public partial class MainWindow : Window, IDisposable
             _recognitionTimer.Stop();
             _candidateTimer.Stop();
             _touchInterceptor.Dispose();
+            _clickWatcher.Dispose();
+            _inputPill.Close();
             if (_hotkeyRegistered && _hwnd != IntPtr.Zero)
             {
                 NativeMethods.UnregisterHotKey(_hwnd, HotkeyId);
@@ -678,6 +773,8 @@ public partial class MainWindow : Window, IDisposable
             _recognitionTimer.Stop();
             _candidateTimer.Stop();
             _touchInterceptor.Dispose();
+            _clickWatcher.Dispose();
+            _inputPill.Close();
             if (_hotkeyRegistered && _hwnd != IntPtr.Zero)
             {
                 NativeMethods.UnregisterHotKey(_hwnd, HotkeyId);

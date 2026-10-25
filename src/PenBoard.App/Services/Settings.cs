@@ -17,6 +17,7 @@ public sealed class Settings
     public bool DebugLogging { get; set; }
     public string RecognitionLanguage { get; set; } = "zh";
     public bool AutoReplaceTouchKeyboard { get; set; }
+    public bool ShowInputPill { get; set; } = true;
     public string? SaveDirectoryOverride { get; set; }
 
     [JsonIgnore]

@@ -13,6 +13,7 @@ public sealed class TrayService : IDisposable
     private readonly Action _onExit;
     private readonly Action<bool> _onDebugLoggingChanged;
     private readonly Action _onOpenLogs;
+    private readonly Action<bool> _onShowInputPillChanged;
     private readonly Action _onCheckUpdates;
     private bool _disposed;
 
@@ -23,6 +24,8 @@ public sealed class TrayService : IDisposable
         bool debugLogging,
         Action<bool> onDebugLoggingChanged,
         Action onOpenLogs,
+        bool showInputPill,
+        Action<bool> onShowInputPillChanged,
         Action onCheckUpdates)
     {
         _onToggle = onToggle;
@@ -30,6 +33,7 @@ public sealed class TrayService : IDisposable
         _onExit = onExit;
         _onDebugLoggingChanged = onDebugLoggingChanged;
         _onOpenLogs = onOpenLogs;
+        _onShowInputPillChanged = onShowInputPillChanged;
         _onCheckUpdates = onCheckUpdates;
 
         var icon = Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? "")
@@ -47,6 +51,14 @@ public sealed class TrayService : IDisposable
         };
         _debugItem.CheckedChanged += (_, _) => _onDebugLoggingChanged(_debugItem.Checked);
         menu.Items.Add(_debugItem);
+
+        var pillItem = new Forms.ToolStripMenuItem("输入框旁显示 PenBoard 按钮")
+        {
+            CheckOnClick = true,
+            Checked = showInputPill
+        };
+        pillItem.CheckedChanged += (_, _) => _onShowInputPillChanged(pillItem.Checked);
+        menu.Items.Add(pillItem);
 
         menu.Items.Add(new Forms.ToolStripMenuItem("打开日志目录", null, (_, _) => _onOpenLogs()));
         menu.Items.Add(new Forms.ToolStripMenuItem("打开保存目录", null, (_, _) => _onOpenFolder()));
