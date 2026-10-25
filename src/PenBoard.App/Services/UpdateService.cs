@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Windows;
 using Application = System.Windows.Application;
@@ -66,9 +67,13 @@ public sealed class UpdateService
                 return;
             }
 
+            // Keep the package outside %LOCALAPPDATA%\PenBoard. The MSI's
+            // CleanupOldZipInstall action deletes that directory before
+            // InstallFiles, which previously deleted the update package in the
+            // middle of the first install attempt.
             var directory = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "PenBoard", "updates");
+                "PenBoardUpdates");
             Directory.CreateDirectory(directory);
             var file = Path.Combine(directory, $"PenBoard-{latest}-arm64.msi");
 
@@ -104,17 +109,32 @@ public sealed class UpdateService
             Logger.Log($"Update downloaded: {file}");
             MessageBox.Show("下载完成，点击确定后 PenBoard 会退出并开始安装。", "检查更新");
 
-            // Start the installer only after this process has exited. Starting
-            // msiexec in-process caused the first install attempt to race the
-            // running PenBoard and fail; the second attempt then succeeded.
-            var command = $"/c timeout /t 2 /nobreak >nul & msiexec.exe /i \"{file}\" /passive /norestart";
-            Process.Start(new ProcessStartInfo("cmd.exe", command)
+            // Wait explicitly for this process to exit, then start msiexec.
+            // A fixed timeout was not enough on slower ARM64 machines and
+            // caused the first install attempt to fail.
+            var pid = Environment.ProcessId;
+            var logPath = Path.Combine(Path.GetTempPath(), "PenBoard-update.log");
+            var batchPath = Path.Combine(Path.GetTempPath(), "PenBoard-update-launch.cmd");
+            var batch = string.Join("\r\n", new[]
+            {
+                "@echo off",
+                ":wait",
+                $"tasklist /FI \"PID eq {pid}\" 2>nul | find \"{pid}\" >nul",
+                "if not errorlevel 1 (",
+                "  timeout /t 1 /nobreak >nul",
+                "  goto wait",
+                ")",
+                $"msiexec.exe /i \"{file}\" /passive /norestart /l*v \"{logPath}\"",
+                "exit /b"
+            });
+            File.WriteAllText(batchPath, batch, Encoding.Default);
+            Process.Start(new ProcessStartInfo("cmd.exe", $"/c call \"{batchPath}\"")
             {
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 WindowStyle = ProcessWindowStyle.Hidden
             });
-            Logger.Log("Update installer scheduled after exit.");
+            Logger.Log($"Update installer waiting for PID {pid}; log={logPath}");
             Application.Current.Shutdown();
         }
         catch (Exception ex)
