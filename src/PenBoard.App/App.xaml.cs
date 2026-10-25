@@ -9,7 +9,7 @@ namespace PenBoard;
 public partial class App : System.Windows.Application
 {
     private SingleInstance? _singleInstance;
-    private MainWindow? _mainWindow;
+    private OverlayController? _controller;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -66,8 +66,8 @@ public partial class App : System.Windows.Application
             settings.Save();
         }
         Logger.DebugEnabled = settings.DebugLogging;
-        Logger.Debug($"Settings loaded: lang={settings.RecognitionLanguage}, autoKb={settings.AutoReplaceTouchKeyboard}");
-        _mainWindow = new MainWindow(settings);
+        Logger.Debug($"Settings loaded: lang={settings.RecognitionLanguage}, pill={settings.ShowInputPill}");
+        _controller = new OverlayController(settings);
 
         _singleInstance.StartServer(message =>
         {
@@ -86,13 +86,14 @@ public partial class App : System.Windows.Application
                 switch (ipcCommand)
                 {
                     case "TOGGLE":
-                        _mainWindow.Toggle(hint);
+                        _controller?.Toggle();
                         break;
                     case "OPEN":
-                        _mainWindow.OpenOverlay(hint);
+                        _controller?.OpenOverlay(hint);
                         break;
                     case "QUIT":
-                        _mainWindow.ExitApp();
+                        _controller?.Dispose();
+                        Shutdown(0);
                         break;
                 }
             });
@@ -100,11 +101,15 @@ public partial class App : System.Windows.Application
 
         if (command is "--toggle" or "--open" or "--show")
         {
-            Dispatcher.BeginInvoke(() => _mainWindow.OpenOverlay(startupForeground));
+            Dispatcher.BeginInvoke(() => _controller.OpenOverlay(startupForeground));
         }
         else if (command == "--quit")
         {
-            Dispatcher.BeginInvoke(() => _mainWindow.ExitApp());
+            Dispatcher.BeginInvoke(() =>
+            {
+                _controller?.Dispose();
+                Shutdown(0);
+            });
         }
     }
 
@@ -131,7 +136,7 @@ public partial class App : System.Windows.Application
     {
         try
         {
-            _mainWindow?.Dispose();
+            _controller?.Dispose();
             _singleInstance?.Dispose();
         }
         catch (Exception ex)
