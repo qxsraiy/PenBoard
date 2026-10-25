@@ -8,13 +8,11 @@ public sealed class TrayService : IDisposable
     private readonly Forms.NotifyIcon _notifyIcon;
     private readonly Forms.ToolStripMenuItem _toggleItem;
     private readonly Forms.ToolStripMenuItem _debugItem;
-    private readonly Forms.ToolStripMenuItem _autoKeyboardItem;
     private readonly Action _onToggle;
     private readonly Action _onOpenFolder;
     private readonly Action _onExit;
     private readonly Action<bool> _onDebugLoggingChanged;
     private readonly Action _onOpenLogs;
-    private readonly Action<bool> _onAutoKeyboardChanged;
     private readonly Action _onCheckUpdates;
     private bool _disposed;
 
@@ -25,8 +23,6 @@ public sealed class TrayService : IDisposable
         bool debugLogging,
         Action<bool> onDebugLoggingChanged,
         Action onOpenLogs,
-        bool autoReplaceTouchKeyboard,
-        Action<bool> onAutoKeyboardChanged,
         Action onCheckUpdates)
     {
         _onToggle = onToggle;
@@ -34,7 +30,6 @@ public sealed class TrayService : IDisposable
         _onExit = onExit;
         _onDebugLoggingChanged = onDebugLoggingChanged;
         _onOpenLogs = onOpenLogs;
-        _onAutoKeyboardChanged = onAutoKeyboardChanged;
         _onCheckUpdates = onCheckUpdates;
 
         var icon = Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath ?? "")
@@ -44,14 +39,6 @@ public sealed class TrayService : IDisposable
         _toggleItem = new Forms.ToolStripMenuItem("打开全屏手写", null, (_, _) => _onToggle());
         menu.Items.Add(_toggleItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
-
-        _autoKeyboardItem = new Forms.ToolStripMenuItem("自动化：替换系统手写板")
-        {
-            CheckOnClick = true,
-            Checked = autoReplaceTouchKeyboard
-        };
-        _autoKeyboardItem.CheckedChanged += (_, _) => _onAutoKeyboardChanged(_autoKeyboardItem.Checked);
-        menu.Items.Add(_autoKeyboardItem);
 
         _debugItem = new Forms.ToolStripMenuItem("调试日志（自动保存）")
         {

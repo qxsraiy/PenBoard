@@ -2,7 +2,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
-using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Ink;
 using System.Windows.Input;
@@ -34,12 +33,8 @@ public partial class MainWindow : Window, IDisposable
     private readonly ScreenCapture _screenCapture = new();
     private readonly Exporter _exporter = new();
     private readonly UpdateService _updateService = new();
-    private readonly OskSuppression _oskSuppression = new();
     private readonly DispatcherTimer _recognitionTimer;
     private readonly DispatcherTimer _candidateTimer;
-    private readonly DispatcherTimer _autoFocusTimer;
-    private readonly DispatcherTimer _overlayTopmostTimer;
-    private readonly DispatcherTimer _oskSuppressTimer;
     private readonly Stack<Stroke> _undoStack = new();
     private readonly List<Button> _toolButtons = new();
     private readonly List<Button> _colorButtons = new();
@@ -53,12 +48,6 @@ public partial class MainWindow : Window, IDisposable
     private bool _targetSupportsText;
     private bool _savePromptVisible;
     private bool _formatClosesAfterSave;
-    private bool _autoFocusInitialized;
-    private bool _autoFocusChecking;
-    private bool _automationArmed;
-    private long _lastClickSequenceAtClose;
-    private long _lastOskKillTick;
-    private string? _lastAutoFocusKey;
     private long _lastToggleTick;
     private long _openedAtTick;
     private bool _isRecognizing;
@@ -93,24 +82,6 @@ public partial class MainWindow : Window, IDisposable
             Interval = TimeSpan.FromMilliseconds(_settings.CandidateDelayMs)
         };
         _candidateTimer.Tick += CandidateTimer_Tick;
-        _autoFocusTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(300)
-        };
-        _autoFocusTimer.Tick += AutoFocusTimer_Tick;
-        _autoFocusTimer.Start();
-        _overlayTopmostTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(300)
-        };
-        _overlayTopmostTimer.Tick += OverlayTopmostTimer_Tick;
-        _overlayTopmostTimer.Start();
-        _oskSuppressTimer = new DispatcherTimer
-        {
-            Interval = TimeSpan.FromMilliseconds(400)
-        };
-        _oskSuppressTimer.Tick += OskSuppressTimer_Tick;
-        _oskSuppressTimer.Start();
 
         SourceInitialized += MainWindow_SourceInitialized;
         Closing += MainWindow_Closing;
@@ -128,19 +99,10 @@ public partial class MainWindow : Window, IDisposable
             _settings.DebugLogging,
             OnDebugLoggingChanged,
             OpenLogFolder,
-            _settings.AutoReplaceTouchKeyboard,
-            OnAutoKeyboardChanged,
             CheckForUpdates);
 
-        _touchInterceptor = new TouchKeyboardInterceptor
-        {
-            Enabled = _settings.AutoReplaceTouchKeyboard
-        };
-        _touchInterceptor.TouchPenInput += OnTouchPenInput;
-        if (_settings.AutoReplaceTouchKeyboard)
-        {
-            _oskSuppression.Apply();
-        }
+        // Used only to close the system touch keyboard when a text caret exists.
+        _touchInterceptor = new TouchKeyboardInterceptor();
 
         ApplyPenAttributes();
         UpdateToolHighlights();
@@ -148,7 +110,6 @@ public partial class MainWindow : Window, IDisposable
         UpdateSafeInsets();
         SystemParameters.StaticPropertyChanged += SystemParameters_StaticPropertyChanged;
         new WindowInteropHelper(this).EnsureHandle();
-        _touchInterceptor.Start(() => _hwnd);
     }
 
     public void Toggle(IntPtr targetHint = default)
@@ -238,12 +199,12 @@ public partial class MainWindow : Window, IDisposable
 
             ResetForOpen();
             UpdateModeUi();
-            if (_mode == OverlayMode.Text && _settings.AutoReplaceTouchKeyboard)
+            if (_mode == OverlayMode.Text)
             {
                 _touchInterceptor.HideTouchKeyboard(true);
             }
             ShowOverlay();
-            if (_mode == OverlayMode.Text && _settings.AutoReplaceTouchKeyboard)
+            if (_mode == OverlayMode.Text)
             {
                 _touchInterceptor.HideTouchKeyboard(true);
             }
@@ -485,11 +446,6 @@ public partial class MainWindow : Window, IDisposable
         Logger.Log("HideOverlay");
         Hide();
         _isOpen = false;
-        _autoFocusInitialized = false;
-        _automationArmed = false;
-        _lastClickSequenceAtClose = _touchInterceptor.ClickSequence;
-        _lastAutoFocusKey = null;
-        _touchInterceptor.ResetTrigger();
         _savePromptVisible = false;
         _screenshot = null;
         BackgroundImage.Source = null;
@@ -679,222 +635,6 @@ public partial class MainWindow : Window, IDisposable
             false);
     }
 
-    private void OnAutoKeyboardChanged(bool enabled)
-    {
-        _settings.AutoReplaceTouchKeyboard = enabled;
-        _settings.Save();
-        _touchInterceptor.Enabled = enabled;
-        _autoFocusInitialized = false;
-        _automationArmed = false;
-        _lastClickSequenceAtClose = _touchInterceptor.ClickSequence;
-        _lastAutoFocusKey = null;
-        if (enabled)
-        {
-            _oskSuppression.Apply();
-        }
-        else
-        {
-            _oskSuppression.Restore();
-        }
-        Logger.Log("Auto replace touch keyboard: " + enabled);
-        if (enabled)
-        {
-            _touchInterceptor.HideTouchKeyboard(true);
-            _tray?.ShowBalloon(
-                "自动化已开启",
-                "触控笔点击输入框或系统手写板出现时，会尝试用 PenBoard 全屏手写替换。",
-                false);
-        }
-    }
-
-    private async void AutoFocusTimer_Tick(object? sender, EventArgs e)
-    {
-        if (!_settings.AutoReplaceTouchKeyboard || _isOpen || _opening || !ShouldAutomate())
-        {
-            return;
-        }
-
-        if (_autoFocusChecking)
-        {
-            return;
-        }
-
-        _autoFocusChecking = true;
-        try
-        {
-            var focus = await Task.Run(GetFocusInfo);
-            if (focus is null)
-            {
-                return;
-            }
-
-            if (!_autoFocusInitialized)
-            {
-                _autoFocusInitialized = true;
-                _lastAutoFocusKey = focus.Value.Key;
-                Logger.Debug("AutoFocus initialized: " + focus.Value.Key);
-                return;
-            }
-
-            if (string.Equals(focus.Value.Key, _lastAutoFocusKey, StringComparison.Ordinal))
-            {
-                return;
-            }
-            _lastAutoFocusKey = focus.Value.Key;
-
-            var target = focus.Value.Hwnd != IntPtr.Zero && NativeMethods.IsWindow(focus.Value.Hwnd)
-                ? focus.Value.Hwnd
-                : NativeMethods.GetForegroundWindow();
-            if (target == IntPtr.Zero || target == _hwnd)
-            {
-                return;
-            }
-
-            var context = await _caretProbe.ProbeAsync(target, 300);
-            Logger.Debug($"AutoFocus changed (observation only): key={focus.Value.Key}, target=0x{target.ToInt64():X}, text={context.IsText}, detail={context.Detail}");
-        }
-        catch (Exception ex)
-        {
-            Logger.Log("AutoFocus: " + ex.Message);
-        }
-        finally
-        {
-            _autoFocusChecking = false;
-        }
-    }
-
-    private void OskSuppressTimer_Tick(object? sender, EventArgs e)
-    {
-        if (!_settings.AutoReplaceTouchKeyboard)
-        {
-            return;
-        }
-
-        if (_settings.AutoReplaceTouchKeyboard)
-        {
-            _touchInterceptor.HideTouchKeyboard(true);
-        }
-        var now = Environment.TickCount64;
-        if (now - _lastOskKillTick > 1500)
-        {
-            _lastOskKillTick = now;
-            _oskSuppression.KillOskProcesses();
-        }
-    }
-
-    private bool ShouldAutomate()
-    {
-        if (!_settings.AutoReplaceTouchKeyboard)
-        {
-            return false;
-        }
-
-        if (_automationArmed)
-        {
-            return true;
-        }
-
-        if (_touchInterceptor.ClickSequence != _lastClickSequenceAtClose)
-        {
-            _automationArmed = true;
-            return true;
-        }
-
-        return false;
-    }
-
-    private void OverlayTopmostTimer_Tick(object? sender, EventArgs e)
-    {
-        if (!_isOpen || _hwnd == IntPtr.Zero)
-        {
-            return;
-        }
-
-        NativeMethods.SetWindowPos(
-            _hwnd,
-            NativeMethods.HWND_TOPMOST,
-            0, 0, 0, 0,
-            NativeMethods.SWP_NOMOVE | NativeMethods.SWP_NOSIZE | NativeMethods.SWP_NOACTIVATE);
-        if (_settings.AutoReplaceTouchKeyboard)
-        {
-            _touchInterceptor.HideTouchKeyboard(true);
-        }
-        if (_settings.AutoReplaceTouchKeyboard)
-        {
-            var now = Environment.TickCount64;
-            if (now - _lastOskKillTick > 1500)
-            {
-                _lastOskKillTick = now;
-                _oskSuppression.KillOskProcesses();
-            }
-        }
-    }
-
-    private static FocusInfo? GetFocusInfo()
-    {
-        try
-        {
-            var element = AutomationElement.FocusedElement;
-            var runtimeId = string.Join(",", element.GetRuntimeId());
-            var key = $"{element.Current.ProcessId}|{element.Current.ControlType.ProgrammaticName}|{runtimeId}";
-            return new FocusInfo(key, new IntPtr(element.Current.NativeWindowHandle));
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private readonly struct FocusInfo
-    {
-        public FocusInfo(string key, IntPtr hwnd)
-        {
-            Key = key;
-            Hwnd = hwnd;
-        }
-
-        public string Key { get; }
-        public IntPtr Hwnd { get; }
-    }
-
-    private async void OnTouchPenInput(IntPtr target, int clickX, int clickY)
-    {
-        if (!_settings.AutoReplaceTouchKeyboard || _isOpen || _opening || !ShouldAutomate())
-        {
-            return;
-        }
-
-        if (target == IntPtr.Zero || target == _hwnd)
-        {
-            return;
-        }
-
-        try
-        {
-            NativeMethods.GetWindowThreadProcessId(target, out var pid);
-            if (pid == (uint)Environment.ProcessId)
-            {
-                return;
-            }
-
-            Logger.Debug($"OnTouchPenInput: probing 0x{target.ToInt64():X} point={clickX},{clickY}");
-            var context = await _caretProbe.ProbeAsync(target, 300, clickX, clickY);
-            if (!context.IsText)
-            {
-                Logger.Debug("OnTouchPenInput: target has no caret; leaving system keyboard alone.");
-                return;
-            }
-
-            _touchInterceptor.HideTouchKeyboard(true);
-            Logger.Debug("OnTouchPenInput: opening full-screen input.");
-            OpenOverlay(target);
-        }
-        catch (Exception ex)
-        {
-            Logger.Log("OnTouchPenInput: " + ex.Message);
-        }
-    }
-
     public void ExitApp()
     {
         if (_isExiting)
@@ -908,7 +648,6 @@ public partial class MainWindow : Window, IDisposable
             _recognitionTimer.Stop();
             _candidateTimer.Stop();
             _touchInterceptor.Dispose();
-            _oskSuppression.Dispose();
             if (_hotkeyRegistered && _hwnd != IntPtr.Zero)
             {
                 NativeMethods.UnregisterHotKey(_hwnd, HotkeyId);
@@ -939,7 +678,6 @@ public partial class MainWindow : Window, IDisposable
             _recognitionTimer.Stop();
             _candidateTimer.Stop();
             _touchInterceptor.Dispose();
-            _oskSuppression.Dispose();
             if (_hotkeyRegistered && _hwnd != IntPtr.Zero)
             {
                 NativeMethods.UnregisterHotKey(_hwnd, HotkeyId);
@@ -1276,10 +1014,7 @@ public partial class MainWindow : Window, IDisposable
         _mode = OverlayMode.Text;
         _screenshot = null;
         UpdateModeUi();
-        if (_settings.AutoReplaceTouchKeyboard)
-        {
-            _touchInterceptor.HideTouchKeyboard(true);
-        }
+        _touchInterceptor.HideTouchKeyboard(true);
     }
 
     private void Pen_Click(object sender, RoutedEventArgs e)

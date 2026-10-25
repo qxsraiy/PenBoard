@@ -58,7 +58,13 @@ public partial class App : System.Windows.Application
             return;
         }
 
+        OskSuppression.RestoreSystemDefaults();
         var settings = Settings.Load();
+        if (settings.AutoReplaceTouchKeyboard)
+        {
+            settings.AutoReplaceTouchKeyboard = false;
+            settings.Save();
+        }
         Logger.DebugEnabled = settings.DebugLogging;
         Logger.Debug($"Settings loaded: lang={settings.RecognitionLanguage}, autoKb={settings.AutoReplaceTouchKeyboard}");
         _mainWindow = new MainWindow(settings);

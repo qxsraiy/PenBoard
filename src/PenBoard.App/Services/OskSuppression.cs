@@ -27,6 +27,41 @@ public sealed class OskSuppression : IDisposable
         (ExplorerAdvanced, "EnableTouchKeyboard", 0)
     };
 
+    public static void RestoreSystemDefaults()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(TabletTip, true)
+                            ?? Registry.CurrentUser.CreateSubKey(TabletTip, true);
+            if (key is not null)
+            {
+                key.SetValue("EnableDesktopModeAutoInvoke", 1, RegistryValueKind.DWord);
+                foreach (var name in new[]
+                         {
+                             "EnableAutoInvoke",
+                             "EnableTouchKeyboardAutoShow",
+                             "DisableTouchKeyboardAutoShow",
+                             "ShowTouchKeyboardOnFocus",
+                             "EnableHandwritingPanel",
+                             "EnableTouchKeyboard",
+                             "TouchKeyboardAutoInvoke",
+                             "AutoShowTouchKeyboard"
+                         })
+                {
+                    key.DeleteValue(name, false);
+                }
+            }
+
+            using var explorer = Registry.CurrentUser.OpenSubKey(ExplorerAdvanced, true);
+            explorer?.DeleteValue("EnableTouchKeyboard", false);
+            Logger.Log("System touch keyboard defaults restored.");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log("RestoreSystemDefaults: " + ex);
+        }
+    }
+
     private readonly Dictionary<string, object?> _originals = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _missing = new(StringComparer.OrdinalIgnoreCase);
     private bool _applied;
