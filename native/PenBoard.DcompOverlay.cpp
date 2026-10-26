@@ -375,7 +375,9 @@ bool SavePng(const std::wstring& path)
     g_hideToolbar = false;
 
     ComPtr<ID3D11Texture2D> backBuffer;
-    if (FAILED(g_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
+    HRESULT hr = g_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
+    Log("SavePng GetBuffer 0x%08X", hr);
+    if (FAILED(hr))
     {
         return false;
     }
@@ -386,7 +388,9 @@ bool SavePng(const std::wstring& path)
     description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
     description.MiscFlags = 0;
     ComPtr<ID3D11Texture2D> staging;
-    if (FAILED(g_d3dDevice->CreateTexture2D(&description, nullptr, &staging)))
+    hr = g_d3dDevice->CreateTexture2D(&description, nullptr, &staging);
+    Log("SavePng CreateStaging 0x%08X", hr);
+    if (FAILED(hr))
     {
         return false;
     }
@@ -394,13 +398,16 @@ bool SavePng(const std::wstring& path)
 
     D3D11_MAPPED_SUBRESOURCE mapped = {};
     Log("SavePng staging");
-    if (FAILED(g_d3dContext->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    hr = g_d3dContext->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped);
+    Log("SavePng Map 0x%08X", hr);
+    if (FAILED(hr))
     {
         return false;
     }
 
     ComPtr<IWICImagingFactory> wic;
-    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+    HRESULT wicHr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+    Log("SavePng WIC 0x%08X", wicHr);
     ComPtr<IWICStream> stream;
     ComPtr<IWICBitmapEncoder> encoder;
     ComPtr<IWICBitmapFrameEncode> frame;
@@ -728,6 +735,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 {
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     for (int i = 1; i < argc; ++i)
