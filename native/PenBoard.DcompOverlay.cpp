@@ -7,6 +7,8 @@
 #include <d2d1_1.h>
 #include <d2d1helper.h>
 #include <dwrite.h>
+#include <wincodec.h>
+#include <shlobj.h>
 #include <wrl/client.h>
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
@@ -22,6 +24,9 @@
 #pragma comment(lib, "dcomp.lib")
 #pragma comment(lib, "d2d1.lib")
 #pragma comment(lib, "dwrite.lib")
+#pragma comment(lib, "windowscodecs.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "windowsapp.lib")
 
 using Microsoft::WRL::ComPtr;
@@ -33,6 +38,9 @@ int g_width = 0;
 int g_height = 0;
 bool g_drawing = false;
 bool g_running = true;
+bool g_annotationMode = false;
+bool g_hideToolbar = false;
+ComPtr<ID2D1Bitmap1> g_backgroundBitmap;
 HHOOK g_keyboardHook = nullptr;
 bool g_textMode = true;
 std::wstring g_language = L"zh";
@@ -43,6 +51,8 @@ D2D1_RECT_F g_backspaceButton = {};
 D2D1_RECT_F g_undoButton = {};
 D2D1_RECT_F g_clearButton = {};
 D2D1_RECT_F g_closeButton = {};
+D2D1_RECT_F g_savePngButton = {};
+D2D1_RECT_F g_savePdfButton = {};
 constexpr UINT WM_APP_RECOGNIZED = WM_APP + 11;
 
 ComPtr<ID3D11Device> g_d3dDevice;
@@ -301,6 +311,118 @@ void RecognizeAsync()
         }
     }).detach();
 }
+void CaptureScreen()
+{
+    HDC screen = GetDC(nullptr);
+    HDC memory = CreateCompatibleDC(screen);
+    BITMAPINFO info = {};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = g_width;
+    info.bmiHeader.biHeight = -g_height;
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!bitmap || !bits)
+    {
+        if (bitmap) DeleteObject(bitmap);
+        DeleteDC(memory);
+        ReleaseDC(nullptr, screen);
+        return;
+    }
+    SelectObject(memory, bitmap);
+    BitBlt(memory, 0, 0, g_width, g_height, screen, 0, 0, SRCCOPY);
+
+    auto* pixels = static_cast<uint32_t*>(bits);
+    for (size_t i = 0; i < static_cast<size_t>(g_width) * g_height; ++i)
+    {
+        pixels[i] |= 0xFF000000;
+    }
+
+    auto properties = D2D1::BitmapProperties1(
+        D2D1_BITMAP_OPTIONS_NONE,
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    g_d2dContext->CreateBitmap(
+        D2D1::SizeU(g_width, g_height), bits, g_width * 4, &properties, &g_backgroundBitmap);
+
+    DeleteObject(bitmap);
+    DeleteDC(memory);
+    ReleaseDC(nullptr, screen);
+}
+
+void Render();
+
+std::wstring AnnotationPath(const wchar_t* extension)
+{
+    wchar_t profile[MAX_PATH] = {};
+    GetEnvironmentVariableW(L"USERPROFILE", profile, MAX_PATH);
+    std::wstring directory = std::wstring(profile) + L"\\Pictures\\PenBoard";
+    SHCreateDirectoryExW(nullptr, directory.c_str(), nullptr);
+    SYSTEMTIME time = {};
+    GetLocalTime(&time);
+    wchar_t name[128] = {};
+    swprintf_s(name, L"\\PenBoard_%04d%02d%02d_%02d%02d%02d.%s",
+               time.wYear, time.wMonth, time.wDay, time.wHour, time.wMinute, time.wSecond, extension);
+    return directory + name;
+}
+bool SavePng(const std::wstring& path)
+{
+    g_hideToolbar = true;
+    Render();
+    g_hideToolbar = false;
+
+    ComPtr<ID3D11Texture2D> backBuffer;
+    if (FAILED(g_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
+    {
+        return false;
+    }
+    D3D11_TEXTURE2D_DESC description = {};
+    backBuffer->GetDesc(&description);
+    description.Usage = D3D11_USAGE_STAGING;
+    description.BindFlags = 0;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    description.MiscFlags = 0;
+    ComPtr<ID3D11Texture2D> staging;
+    if (FAILED(g_d3dDevice->CreateTexture2D(&description, nullptr, &staging)))
+    {
+        return false;
+    }
+    g_d3dContext->CopyResource(staging.Get(), backBuffer.Get());
+
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (FAILED(g_d3dContext->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    {
+        return false;
+    }
+
+    ComPtr<IWICImagingFactory> wic;
+    CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+    ComPtr<IWICStream> stream;
+    ComPtr<IWICBitmapEncoder> encoder;
+    ComPtr<IWICBitmapFrameEncode> frame;
+    bool ok = false;
+    if (wic)
+    {
+        wic->CreateStream(&stream);
+        stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE);
+        wic->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
+        encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+        encoder->CreateNewFrame(&frame, nullptr);
+        frame->Initialize(nullptr);
+        frame->SetSize(description.Width, description.Height);
+        WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+        frame->SetPixelFormat(&format);
+        frame->WritePixels(description.Height, mapped.RowPitch,
+                           mapped.RowPitch * description.Height,
+                           static_cast<BYTE*>(mapped.pData));
+        frame->Commit();
+        encoder->Commit();
+        ok = true;
+    }
+    g_d3dContext->Unmap(staging.Get(), 0);
+    return ok;
+}
 void Render()
 {
     if (!g_d2dContext || !g_swapChain)
@@ -311,6 +433,10 @@ void Render()
     g_d2dContext->BeginDraw();
     g_d2dContext->SetTransform(D2D1::Matrix3x2F::Identity());
     g_d2dContext->Clear(D2D1::ColorF(0, 0, 0, 0));
+    if (g_backgroundBitmap)
+    {
+        g_d2dContext->DrawBitmap(g_backgroundBitmap.Get(), D2D1::RectF(0, 0, (float)g_width, (float)g_height));
+    }
 
     for (const auto& stroke : g_strokes)
     {
@@ -319,6 +445,13 @@ void Render()
         {
             g_d2dContext->DrawLine(stroke.points[i - 1], stroke.points[i], g_brush.Get(), 4.0f);
         }
+    }
+
+    if (g_hideToolbar)
+    {
+        g_d2dContext->EndDraw();
+        g_swapChain->Present(0, 0);
+        return;
     }
 
     // Candidate row.
@@ -349,6 +482,21 @@ void Render()
         DrawLabel(label, rect, true);
     };
 
+    if (g_annotationMode)
+    {
+        float ax = bar.left + 12.0f;
+        float ay = bar.top + 12.0f;
+        float ah = bar.bottom - bar.top - 24.0f;
+        g_savePngButton = D2D1::RectF(ax, ay, ax + 84.0f, ay + ah); ax += 92.0f;
+        button(g_savePngButton, L"Save PNG", D2D1::ColorF(0.12f, 0.45f, 0.85f, 1.0f));
+        g_savePdfButton = D2D1::RectF(ax, ay, ax + 84.0f, ay + ah); ax += 92.0f;
+        button(g_savePdfButton, L"Save PDF", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
+        g_closeButton = D2D1::RectF(bar.right - 82.0f, ay, bar.right - 12.0f, ay + ah);
+        button(g_closeButton, L"Close", D2D1::ColorF(0.90f, 0.22f, 0.21f, 1.0f));
+        g_d2dContext->EndDraw();
+        g_swapChain->Present(0, 0);
+        return;
+    }
     float x = bar.left + 12.0f;
     float y = bar.top + 12.0f;
     float h = bar.bottom - bar.top - 24.0f;
@@ -402,7 +550,7 @@ bool InRect(const D2D1_RECT_F& rect, float x, float y)
 
 bool InToolbar(float x, float y)
 {
-    return InRect(g_recognizeButton, x, y) || InRect(g_languageButton, x, y) ||
+    return InRect(g_recognizeButton, x, y) || InRect(g_languageButton, x, y) || InRect(g_savePngButton, x, y) || InRect(g_savePdfButton, x, y) ||
            InRect(g_backspaceButton, x, y) || InRect(g_undoButton, x, y) ||
            InRect(g_clearButton, x, y) || InRect(g_closeButton, x, y);
 }
