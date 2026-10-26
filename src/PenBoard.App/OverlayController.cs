@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Windows;
+using PenBoard.Interop;
 using PenBoard.Services;
 using MessageBox = System.Windows.MessageBox;
 using Application = System.Windows.Application;
@@ -8,8 +10,8 @@ using Application = System.Windows.Application;
 namespace PenBoard;
 
 /// <summary>
-/// Owns the tray and the lightweight pill. The WPF overlay is created on
-/// demand; this is the original, fully styled overlay.
+/// Owns the tray and the lightweight pill and launches the native
+/// DirectComposition overlay on demand. The WPF overlay is only a fallback.
 /// </summary>
 public sealed class OverlayController : IDisposable
 {
@@ -17,7 +19,9 @@ public sealed class OverlayController : IDisposable
     private readonly TrayService _tray;
     private readonly PillService _pill;
     private readonly UpdateService _updateService = new();
+    private readonly CaretProbe _caretProbe = new();
     private MainWindow? _window;
+    private Process? _native;
     private bool _disposed;
 
     public OverlayController(Settings settings)
@@ -35,25 +39,93 @@ public sealed class OverlayController : IDisposable
             CheckForUpdates);
 
         _pill = new PillService { Enabled = _settings.ShowInputPill };
-        _pill.OpenRequested += target =>
+        _pill.OpenRequested += _ =>
         {
             _pill.Suspend();
-            OpenOverlay(target);
+            OpenNative(textMode: true);
         };
     }
 
-    public void Toggle()
+    private static string NativePath =>
+        Path.Combine(AppContext.BaseDirectory, "PenBoard.DcompOverlay.exe");
+
+    public async void Toggle()
     {
-        var window = EnsureWindow();
-        _pill.Suspend();
-        window.Toggle();
+        if (TryCloseNative())
+        {
+            return;
+        }
+
+        var target = NativeMethods.GetForegroundWindow();
+        var context = await _caretProbe.ProbeAsync(target, 350);
+        OpenNative(context.IsText);
     }
 
     public void OpenOverlay(IntPtr target)
     {
-        var window = EnsureWindow();
-        _pill.Suspend();
-        window.OpenOverlay(target);
+        OpenNative(textMode: true);
+    }
+
+    private void OpenNative(bool textMode)
+    {
+        if (!File.Exists(NativePath))
+        {
+            var window = EnsureWindow();
+            _pill.Suspend();
+            window.OpenOverlay(NativeMethods.GetForegroundWindow());
+            return;
+        }
+
+        if (TryCloseNative())
+        {
+            return;
+        }
+
+        try
+        {
+            _pill.Suspend();
+            if (!textMode)
+            {
+                Thread.Sleep(220);
+            }
+            var process = Process.Start(new ProcessStartInfo(
+                NativePath, textMode ? "" : "--annotation")
+            {
+                WorkingDirectory = AppContext.BaseDirectory,
+                UseShellExecute = false
+            });
+            if (process is null)
+            {
+                _pill.Resume();
+                return;
+            }
+
+            _native = process;
+            process.EnableRaisingEvents = true;
+            process.Exited += (_, _) =>
+            {
+                _native = null;
+                _pill.Resume();
+            };
+            Logger.Log($"Native overlay started: pid={process.Id}, text={textMode}");
+        }
+        catch (Exception ex)
+        {
+            Logger.Log("Native overlay start: " + ex);
+            _pill.Resume();
+        }
+    }
+
+    private bool TryCloseNative()
+    {
+        var hwnd = NativeMethods.FindWindow("PenBoardDcompOverlay", null);
+        if (hwnd != IntPtr.Zero)
+        {
+            NativeMethods.PostMessage(hwnd, NativeMethods.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            Logger.Log("Native overlay close requested.");
+            return true;
+        }
+        return false;
     }
 
     private MainWindow EnsureWindow()
@@ -119,7 +191,7 @@ public sealed class OverlayController : IDisposable
 
     private async void CheckForUpdates()
     {
-        if (_window is { IsOverlayOpen: true })
+        if (_native is { HasExited: false } || _window is { IsOverlayOpen: true })
         {
             MessageBox.Show("请先关闭全屏手写层，再检查更新。", "检查更新");
             return;
@@ -130,6 +202,7 @@ public sealed class OverlayController : IDisposable
 
     private void Exit()
     {
+        TryCloseNative();
         if (_window is not null)
         {
             _window.ExitApp();
@@ -148,6 +221,7 @@ public sealed class OverlayController : IDisposable
             return;
         }
         _disposed = true;
+        TryCloseNative();
         _pill.Dispose();
         _window?.Dispose();
         _window = null;

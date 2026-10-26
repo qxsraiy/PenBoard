@@ -90,6 +90,7 @@ ComPtr<ID2D1Bitmap1> g_targetBitmap;
 ComPtr<ID2D1SolidColorBrush> g_brush;
 ComPtr<IDWriteFactory> g_dwrite;
 ComPtr<IDWriteTextFormat> g_textFormat;
+ComPtr<IDWriteTextFormat> g_text16;
 
 struct Stroke{
     std::vector<D2D1_POINT_2F> points;
@@ -202,7 +203,10 @@ bool CreateGraphics(HWND hwnd)
                         reinterpret_cast<IUnknown**>(g_dwrite.GetAddressOf()));
     g_dwrite->CreateTextFormat(L"Microsoft YaHei UI", nullptr,
                                DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                               DWRITE_FONT_STRETCH_NORMAL, 14.0f, L"zh-CN", &g_textFormat);
+                               DWRITE_FONT_STRETCH_NORMAL, 13.0f, L"zh-CN", &g_textFormat);
+    g_dwrite->CreateTextFormat(L"Microsoft YaHei UI", nullptr,
+                               DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+                               DWRITE_FONT_STRETCH_NORMAL, 16.0f, L"zh-CN", &g_text16);
     return true;
 }
 
@@ -590,6 +594,151 @@ bool SavePng(const std::wstring& path)
     g_d3dContext->Unmap(staging.Get(), 0);
     return ok;
 }
+void Label16(const wchar_t* text, const D2D1_RECT_F& rect)
+{
+    if (!g_dwrite || !g_text16) return;
+    ComPtr<IDWriteTextLayout> layout;
+    if (SUCCEEDED(g_dwrite->CreateTextLayout(text, (UINT32)wcslen(text), g_text16.Get(),
+        rect.right - rect.left, rect.bottom - rect.top, &layout)) && layout)
+    {
+        layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        layout->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        g_d2dContext->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), layout.Get(), g_brush.Get());
+    }
+}
+
+void DrawButton(const D2D1_RECT_F& rect, const wchar_t* label, bool active, D2D1_COLOR_F fill)
+{
+    g_brush->SetColor(active ? D2D1::ColorF(0.176f, 0.49f, 1.0f, 1.0f) : fill);
+    g_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(rect, 7, 7), g_brush.Get());
+    g_brush->SetColor(active ? D2D1::ColorF(1, 1, 1, 1) : D2D1::ColorF(1, 1, 1, 0.25f));
+    g_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(rect, 7, 7), g_brush.Get(), active ? 2.0f : 1.0f);
+    g_brush->SetColor(D2D1::ColorF(1, 1, 1, 1));
+    DrawLabel(label, rect, true);
+}
+
+void DrawSwatch(const D2D1_RECT_F& rect, D2D1_COLOR_F color, bool active)
+{
+    g_brush->SetColor(D2D1::ColorF(1, 1, 1, active ? 1.0f : 0.267f));
+    g_d2dContext->DrawEllipse(D2D1::Ellipse(D2D1::Point2F((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2), 15, 15), g_brush.Get(), active ? 2.0f : 1.0f);
+    g_brush->SetColor(color);
+    g_d2dContext->FillEllipse(D2D1::Ellipse(D2D1::Point2F((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2), 11, 11), g_brush.Get());
+}
+
+void DrawUi()
+{
+    // Top banner, exact old WPF metrics.
+    {
+        D2D1_RECT_F top = D2D1::RectF(g_width / 2.0f - 50.0f, 16.0f, g_width / 2.0f + 50.0f, 52.0f);
+        g_brush->SetColor(D2D1::ColorF(0.078f, 0.078f, 0.078f, 0.80f));
+        g_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(top, 10, 10), g_brush.Get());
+        g_brush->SetColor(D2D1::ColorF(1, 1, 1, 0.20f));
+        g_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(top, 10, 10), g_brush.Get(), 1.0f);
+        g_brush->SetColor(D2D1::ColorF(1, 1, 1, 1));
+        Label16(g_textMode ? L"输入模式" : L"批注模式", top);
+    }
+
+    // Candidate bar.
+    if (g_textMode && !g_candidates.empty())
+    {
+        float left = g_width / 2.0f - 240.0f;
+        for (size_t i = 0; i < g_candidates.size() && i < 6; ++i)
+        {
+            D2D1_RECT_F rect = D2D1::RectF(left, g_height - 180.0f, left + 70.0f, g_height - 146.0f);
+            DrawButton(rect, g_candidates[i].c_str(), false, D2D1::ColorF(0.078f, 0.078f, 0.078f, 0.94f));
+            left += 76.0f;
+        }
+    }
+
+    const float y = g_height - 112.0f;
+    const float h = 33.0f;
+    float left = 0, right = 0;
+    D2D1_RECT_F pen, eraser, eraseStroke, c0, c1, c2, thin, med, thick, sw, lang, back, undo, clear, save, close;
+    if (g_textMode)
+    {
+        left = 532.0f;
+        pen = D2D1::RectF(540, y, 579, y + h);
+        eraser = D2D1::RectF(585, y, 648, y + h);
+        eraseStroke = D2D1::RectF(654, y, 717, y + h);
+        c0 = D2D1::RectF(741, y + 2, 771, y + 32);
+        c1 = D2D1::RectF(779, y + 2, 809, y + 32);
+        c2 = D2D1::RectF(817, y + 2, 847, y + 32);
+        thin = D2D1::RectF(871, y, 908, y + h);
+        med = D2D1::RectF(914, y, 953, y + h);
+        thick = D2D1::RectF(959, y, 996, y + h);
+        sw = D2D1::RectF(1019, y, 1097, y + h);
+        lang = D2D1::RectF(1103, y, 1155, y + h);
+        back = D2D1::RectF(1161, y, 1211, y + h);
+        undo = D2D1::RectF(1217, y, 1267, y + h);
+        clear = D2D1::RectF(1273, y, 1323, y + h);
+        close = D2D1::RectF(1329, y, 1379, y + h);
+        right = 1387.0f;
+    }
+    else
+    {
+        left = 562.0f;
+        pen = D2D1::RectF(570, y, 609, y + h);
+        eraser = D2D1::RectF(615, y, 678, y + h);
+        eraseStroke = D2D1::RectF(684, y, 747, y + h);
+        c0 = D2D1::RectF(771, y + 2, 801, y + 32);
+        c1 = D2D1::RectF(809, y + 2, 839, y + 32);
+        c2 = D2D1::RectF(847, y + 2, 877, y + 32);
+        thin = D2D1::RectF(901, y, 938, y + h);
+        med = D2D1::RectF(944, y, 983, y + h);
+        thick = D2D1::RectF(989, y, 1026, y + h);
+        sw = D2D1::RectF(1049, y, 1127, y + h);
+        save = D2D1::RectF(1243, y, 1293, y + h);
+        close = D2D1::RectF(1299, y, 1349, y + h);
+        right = 1357.0f;
+    }
+
+    D2D1_RECT_F bar = D2D1::RectF(left, y - 6, right, y + h + 6);
+    g_brush->SetColor(D2D1::ColorF(0.078f, 0.078f, 0.078f, 0.94f));
+    g_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(bar, 14, 14), g_brush.Get());
+    g_brush->SetColor(D2D1::ColorF(1, 1, 1, 0.267f));
+    g_d2dContext->DrawRoundedRectangle(D2D1::RoundedRect(bar, 14, 14), g_brush.Get(), 1.0f);
+
+    const auto normal = D2D1::ColorF(1, 1, 1, 0.15f);
+    DrawButton(pen, L"笔", g_tool == 0, normal);
+    DrawButton(eraser, L"涂抹擦", g_tool == 1, normal);
+    DrawButton(eraseStroke, L"整笔擦", g_tool == 2, normal);
+    DrawSwatch(c0, g_inkColors[0], g_colorIndex == 0);
+    DrawSwatch(c1, g_inkColors[1], g_colorIndex == 1);
+    DrawSwatch(c2, g_inkColors[2], g_colorIndex == 2);
+    DrawButton(thin, L"细", g_widthIndex == 0, normal);
+    DrawButton(med, L"中", g_widthIndex == 1, normal);
+    DrawButton(thick, L"粗", g_widthIndex == 2, normal);
+    DrawButton(sw, g_textMode ? L"切换批注" : L"切换输入", false,
+               g_textMode ? D2D1::ColorF(0.90f, 0.22f, 0.21f, 0.8f) : D2D1::ColorF(0.12f, 0.45f, 0.85f, 0.8f));
+    if (g_textMode)
+    {
+        DrawButton(lang, g_language == L"en" ? L"English" : L"中文", false,
+                   g_language == L"en" ? D2D1::ColorF(0.12f, 0.45f, 0.85f, 0.8f) : D2D1::ColorF(0.90f, 0.22f, 0.21f, 0.8f));
+        DrawButton(back, L"退格", false, normal);
+        DrawButton(undo, L"撤销", false, normal);
+        DrawButton(clear, L"清空", false, normal);
+    }
+    else
+    {
+        DrawButton(save, L"保存", false, normal);
+    }
+    DrawButton(close, L"关闭", false, normal);
+
+    g_penButton = pen;
+    g_eraserButton = eraser;
+    g_eraseStrokeButton = eraseStroke;
+    g_colorButtons[0] = c0; g_colorButtons[1] = c1; g_colorButtons[2] = c2;
+    g_widthButtons[0] = thin; g_widthButtons[1] = med; g_widthButtons[2] = thick;
+    g_switchButton = sw;
+    g_languageButton = lang;
+    g_backspaceButton = back;
+    g_undoButton = undo;
+    g_clearButton = clear;
+    g_savePngButton = save;
+    g_savePdfButton = D2D1::RectF(0, 0, 0, 0);
+    g_closeButton = close;
+    g_recognizeButton = D2D1::RectF(0, 0, 0, 0);
+}
 void Render()
 {
     if (!g_d2dContext || !g_swapChain)
@@ -620,6 +769,11 @@ void Render()
         g_swapChain->Present(0, 0);
         return;
     }
+
+    DrawUi();
+    g_d2dContext->EndDraw();
+    g_swapChain->Present(0, 0);
+    return;
 
     {
         D2D1_RECT_F top = D2D1::RectF(g_width / 2.0f - 92.0f, 16.0f, g_width / 2.0f + 92.0f, 56.0f);
