@@ -22,7 +22,7 @@
 namespace {
 
 ID2D1Factory* g_d2d = nullptr;
-ID2D1DCRenderTarget* g_target = nullptr;
+ID2D1HwndRenderTarget* g_hwndTarget = nullptr;
 IDWriteFactory* g_dwrite = nullptr;
 IDWriteTextFormat* g_text = nullptr;
 ID2D1SolidColorBrush* g_brush = nullptr;
@@ -96,7 +96,7 @@ void DrawLabel(const wchar_t* text, const D2D1_RECT_F& rect, bool center)
         {
             layout->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
         }
-        g_target->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), layout, g_brush);
+        g_hwndTarget->DrawTextLayout(D2D1::Point2F(rect.left, rect.top), layout, g_brush);
         layout->Release();
     }
 }
@@ -221,20 +221,16 @@ void RecognizeAsync()
 
 void Render()
 {
-    RECT rect = {0, 0, g_width, g_height};
-    g_target->BindDC(g_memoryDc, &rect);
-    g_target->BeginDraw();
-    g_target->SetTransform(D2D1::Matrix3x2F::Identity());
-    // A fully transparent layered surface is click-through. Keep one alpha
-    // step so the overlay still receives pen/mouse input.
-    g_target->Clear(D2D1::ColorF(0, 0, 0, 1.0f / 255.0f));
+    g_hwndTarget->BeginDraw();
+    g_hwndTarget->SetTransform(D2D1::Matrix3x2F::Identity());
+    g_hwndTarget->Clear(D2D1::ColorF(1, 0, 1, 1));
 
     for (const auto& stroke : g_strokes)
     {
         g_brush->SetColor(stroke.color);
         for (size_t i = 1; i < stroke.points.size(); ++i)
         {
-            g_target->DrawLine(stroke.points[i - 1], stroke.points[i], g_brush, stroke.width);
+            g_hwndTarget->DrawLine(stroke.points[i - 1], stroke.points[i], g_brush, stroke.width);
         }
     }
 
@@ -248,7 +244,7 @@ void Render()
             D2D1_RECT_F rect = D2D1::RectF(left, g_height - 146.0f, left + 84.0f, g_height - 102.0f);
             g_candidateRects.push_back(rect);
             g_brush->SetColor(D2D1::ColorF(0.12f, 0.12f, 0.12f, 0.96f));
-            g_target->FillRoundedRectangle(D2D1::RoundedRect(rect, 8.0f, 8.0f), g_brush);
+            g_hwndTarget->FillRoundedRectangle(D2D1::RoundedRect(rect, 8.0f, 8.0f), g_brush);
             g_brush->SetColor(D2D1::ColorF(1, 1, 1, 1));
             DrawLabel(g_candidates[i].c_str(), rect, true);
             left += 90.0f;
@@ -262,14 +258,14 @@ void Render()
         g_width / 2.0f + 360.0f,
         g_height - 20.0f);
     g_brush->SetColor(D2D1::ColorF(0.08f, 0.08f, 0.08f, 0.94f));
-    g_target->FillRoundedRectangle(D2D1::RoundedRect(bar, 14.0f, 14.0f), g_brush);
+    g_hwndTarget->FillRoundedRectangle(D2D1::RoundedRect(bar, 14.0f, 14.0f), g_brush);
     g_brush->SetColor(D2D1::ColorF(0.25f, 0.25f, 0.25f, 1.0f));
-    g_target->DrawRoundedRectangle(D2D1::RoundedRect(bar, 14.0f, 14.0f), g_brush, 1.0f);
+    g_hwndTarget->DrawRoundedRectangle(D2D1::RoundedRect(bar, 14.0f, 14.0f), g_brush, 1.0f);
 
     auto button = [&](D2D1_RECT_F rect, const wchar_t* label, D2D1_COLOR_F color)
     {
         g_brush->SetColor(color);
-        g_target->FillRoundedRectangle(D2D1::RoundedRect(rect, 8.0f, 8.0f), g_brush);
+        g_hwndTarget->FillRoundedRectangle(D2D1::RoundedRect(rect, 8.0f, 8.0f), g_brush);
         g_brush->SetColor(D2D1::ColorF(1, 1, 1, 1));
         DrawLabel(label, rect, true);
     };
@@ -290,31 +286,7 @@ void Render()
     g_closeButton = D2D1::RectF(bar.right - 86.0f, y, bar.right - 12.0f, y + h);
     button(g_closeButton, L"Close", D2D1::ColorF(0.90f, 0.22f, 0.21f, 1.0f));
 
-    g_target->EndDraw();
-
-    // D2D's DC target can leave the untouched background at alpha=0, which
-    // makes the layered window click-through. Force a minimum alpha of 1.
-    if (g_bits)
-    {
-        auto* pixels = static_cast<uint32_t*>(g_bits);
-        const size_t count = static_cast<size_t>(g_width) * static_cast<size_t>(g_height);
-        for (size_t i = 0; i < count; ++i)
-        {
-            if ((pixels[i] >> 24) == 0)
-            {
-                pixels[i] = 0x01000000;
-            }
-        }
-    }
-
-    HDC screen = GetDC(nullptr);
-    POINT source = {0, 0};
-    POINT destination = {0, 0};
-    SIZE size = {g_width, g_height};
-    BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-    BOOL updated = UpdateLayeredWindow(g_hwnd, screen, &destination, &size, g_memoryDc, &source, 0, &blend, ULW_ALPHA);
-    NativeLog("UpdateLayeredWindow=%d err=%lu", updated, GetLastError());
-    ReleaseDC(nullptr, screen);
+    g_hwndTarget->EndDraw();
 }
 
 bool InitializeGraphics(HWND hwnd)
@@ -324,10 +296,15 @@ bool InitializeGraphics(HWND hwnd)
         return false;
     }
 
-    auto properties = D2D1::RenderTargetProperties(
-        D2D1_RENDER_TARGET_TYPE_SOFTWARE,
-        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
-    if (FAILED(g_d2d->CreateDCRenderTarget(&properties, &g_target)))
+    auto properties = D2D1::RenderTargetProperties();
+    auto hwndProperties = D2D1::HwndRenderTargetProperties(
+        hwnd, D2D1::SizeU(g_width, g_height));
+    if (FAILED(g_d2d->CreateHwndRenderTarget(properties, hwndProperties, &g_hwndTarget)))
+    {
+        return false;
+    }
+
+    if (FAILED(g_hwndTarget->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 1), &g_brush)))
     {
         return false;
     }
@@ -337,35 +314,10 @@ bool InitializeGraphics(HWND hwnd)
     {
         return false;
     }
-    if (FAILED(g_dwrite->CreateTextFormat(L"Microsoft YaHei UI", nullptr,
-                                          DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                                          DWRITE_FONT_STRETCH_NORMAL, 14.0f, L"zh-CN", &g_text)))
-    {
-        return false;
-    }
-
-    HDC screen = GetDC(nullptr);
-    g_memoryDc = CreateCompatibleDC(screen);
-    ReleaseDC(nullptr, screen);
-
-    BITMAPINFO info = {};
-    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
-    info.bmiHeader.biWidth = g_width;
-    info.bmiHeader.biHeight = -g_height;
-    info.bmiHeader.biPlanes = 1;
-    info.bmiHeader.biBitCount = 32;
-    info.bmiHeader.biCompression = BI_RGB;
-
-    g_bitmap = CreateDIBSection(g_memoryDc, &info, DIB_RGB_COLORS, &g_bits, nullptr, 0);
-    if (!g_bitmap)
-    {
-        return false;
-    }
-    SelectObject(g_memoryDc, g_bitmap);
-    g_target->CreateSolidColorBrush(D2D1::ColorF(1, 1, 1, 1), &g_brush);
-    return g_brush != nullptr;
+    return SUCCEEDED(g_dwrite->CreateTextFormat(L"Microsoft YaHei UI", nullptr,
+                                                DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                                DWRITE_FONT_STRETCH_NORMAL, 14.0f, L"zh-CN", &g_text));
 }
-
 void AddPoint(float x, float y)
 {
     if (g_strokes.empty() || !g_drawing)
@@ -664,6 +616,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         return 2;
     }
 
+    SetLayeredWindowAttributes(hwnd, RGB(255, 0, 255), 0, LWA_COLORKEY);
     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
     NativeLog("ShowWindow visible=%d rect=%d,%d size=%dx%d", IsWindowVisible(hwnd), 0, 0, g_width, g_height);
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -684,7 +637,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     if (g_brush) g_brush->Release();
     if (g_text) g_text->Release();
     if (g_dwrite) g_dwrite->Release();
-    if (g_target) g_target->Release();
+    if (g_hwndTarget) g_hwndTarget->Release();
     if (g_d2d) g_d2d->Release();
     if (g_bitmap) DeleteObject(g_bitmap);
     if (g_memoryDc) DeleteDC(g_memoryDc);
