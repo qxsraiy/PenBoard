@@ -55,6 +55,7 @@ D2D1_RECT_F g_closeButton = {};
 D2D1_RECT_F g_savePngButton = {};
 D2D1_RECT_F g_savePdfButton = {};
 constexpr UINT WM_APP_RECOGNIZED = WM_APP + 11;
+constexpr UINT WM_APP_SAVE_PNG = WM_APP + 12;
 
 ComPtr<ID3D11Device> g_d3dDevice;
 ComPtr<ID3D11DeviceContext> g_d3dContext;
@@ -491,6 +492,7 @@ void Render()
         float ay = bar.top + 12.0f;
         float ah = bar.bottom - bar.top - 24.0f;
         g_savePngButton = D2D1::RectF(ax, ay, ax + 84.0f, ay + ah); ax += 92.0f;
+        Log("Annotation size=%dx%d save=%.0f,%.0f,%.0f,%.0f", g_width, g_height, g_savePngButton.left, g_savePngButton.top, g_savePngButton.right, g_savePngButton.bottom);
         button(g_savePngButton, L"Save PNG", D2D1::ColorF(0.12f, 0.45f, 0.85f, 1.0f));
         g_savePdfButton = D2D1::RectF(ax, ay, ax + 84.0f, ay + ah); ax += 92.0f;
         button(g_savePdfButton, L"Save PDF", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
@@ -599,6 +601,11 @@ LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
             PostMessageW(g_hwnd, WM_CLOSE, 0, 0);
             return 1;
         }
+        if (data->vkCode == 'S' && g_annotationMode)
+        {
+            PostMessageW(g_hwnd, WM_APP_SAVE_PNG, 0, 0);
+            return 1;
+        }
     }
     return CallNextHookEx(g_keyboardHook, nCode, wParam, lParam);
 }
@@ -703,6 +710,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         EndPaint(hwnd, &paint);
         return 0;
     }
+    case WM_APP_SAVE_PNG:
+        SavePng(AnnotationPath(L"png"));
+        PostQuitMessage(0);
+        return 0;
     case WM_CLOSE:
         PostQuitMessage(0);
         return 0;
