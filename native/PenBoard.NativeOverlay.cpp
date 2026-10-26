@@ -8,6 +8,8 @@
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.UI.Input.Inking.h>
+#include <cstdarg>
+#include <cstdio>
 #include <thread>
 #include <mutex>
 #include <vector>
@@ -46,6 +48,23 @@ D2D1_RECT_F g_undoButton = {};
 D2D1_RECT_F g_clearButton = {};
 
 constexpr UINT WM_APP_RECOGNIZED = WM_APP + 1;
+
+void NativeLog(const char* format, ...)
+{
+    char path[MAX_PATH] = {};
+    GetTempPathA(MAX_PATH, path);
+    strcat_s(path, "PenBoard-native.log");
+    FILE* file = nullptr;
+    if (fopen_s(&file, path, "a") == 0 && file)
+    {
+        va_list args;
+        va_start(args, format);
+        vfprintf(file, format, args);
+        va_end(args);
+        fputc('\n', file);
+        fclose(file);
+    }
+}
 
 struct Stroke
 {
@@ -99,6 +118,7 @@ void InjectText(const std::wstring& text)
         up.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
         inputs.push_back(up);
     }
+    NativeLog("InjectText chars=%zu foreground=0x%p", text.size(), GetForegroundWindow());
     SendInput(static_cast<UINT>(inputs.size()), inputs.data(), sizeof(INPUT));
 }
 
@@ -173,6 +193,7 @@ void RecognizeAsync()
             }
 
             auto results = recognizer.RecognizeAsync(container, InkRecognitionTarget::All).get();
+            NativeLog("Recognition returned %u results", results.Size());
             auto candidates = new std::vector<std::wstring>();
             for (auto const& result : results)
             {
@@ -184,6 +205,7 @@ void RecognizeAsync()
                     }
                 }
             }
+            NativeLog("Candidates=%zu", candidates->size());
             PostMessageW(hwnd, WM_APP_RECOGNIZED, 0, reinterpret_cast<LPARAM>(candidates));
         }
         catch (...)
@@ -199,7 +221,9 @@ void Render()
     g_target->BindDC(g_memoryDc, &rect);
     g_target->BeginDraw();
     g_target->SetTransform(D2D1::Matrix3x2F::Identity());
-    g_target->Clear(D2D1::ColorF(0, 0, 0, 0));
+    // A fully transparent layered surface is click-through. Keep one alpha
+    // step so the overlay still receives pen/mouse input.
+    g_target->Clear(D2D1::ColorF(0, 0, 0, 1.0f / 255.0f));
 
     for (const auto& stroke : g_strokes)
     {
@@ -264,12 +288,28 @@ void Render()
 
     g_target->EndDraw();
 
+    // D2D's DC target can leave the untouched background at alpha=0, which
+    // makes the layered window click-through. Force a minimum alpha of 1.
+    if (g_bits)
+    {
+        auto* pixels = static_cast<uint32_t*>(g_bits);
+        const size_t count = static_cast<size_t>(g_width) * static_cast<size_t>(g_height);
+        for (size_t i = 0; i < count; ++i)
+        {
+            if ((pixels[i] >> 24) == 0)
+            {
+                pixels[i] = 0x01000000;
+            }
+        }
+    }
+
     HDC screen = GetDC(nullptr);
     POINT source = {0, 0};
     POINT destination = {0, 0};
     SIZE size = {g_width, g_height};
     BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-    UpdateLayeredWindow(g_hwnd, screen, &destination, &size, g_memoryDc, &source, 0, &blend, ULW_ALPHA);
+    BOOL updated = UpdateLayeredWindow(g_hwnd, screen, &destination, &size, g_memoryDc, &source, 0, &blend, ULW_ALPHA);
+    NativeLog("UpdateLayeredWindow=%d err=%lu", updated, GetLastError());
     ReleaseDC(nullptr, screen);
 }
 
@@ -405,6 +445,7 @@ void HandleTap(float x, float y)
     {
         if (InRect(g_candidateRects[i], x, y))
         {
+            NativeLog("Candidate click %zu", i);
             InjectText(g_candidates[i]);
             g_strokes.clear();
             g_candidates.clear();
@@ -562,6 +603,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 {
+    NativeLog("Native overlay start");
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     g_width = GetSystemMetrics(SM_CXSCREEN);
     g_height = GetSystemMetrics(SM_CYSCREEN);
@@ -592,6 +634,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     }
 
     ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    NativeLog("ShowWindow visible=%d rect=%d,%d size=%dx%d", IsWindowVisible(hwnd), 0, 0, g_width, g_height);
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     Render();
 
