@@ -49,6 +49,7 @@ HHOOK g_keyboardHook = nullptr;
 bool g_textMode = true;
 std::wstring g_language = L"zh";
 std::vector<std::wstring> g_candidates;
+std::vector<D2D1_RECT_F> g_candidateRects;
 D2D1_RECT_F g_recognizeButton = {};
 D2D1_RECT_F g_languageButton = {};
 D2D1_RECT_F g_backspaceButton = {};
@@ -702,6 +703,7 @@ bool InRect(const D2D1_RECT_F& rect, float x, float y)
 
 bool InToolbar(float x, float y)
 {
+    for (const auto& rect : g_candidateRects) { if (InRect(rect, x, y)) return true; }
     return InRect(g_recognizeButton, x, y) || InRect(g_languageButton, x, y) || InRect(g_savePngButton, x, y) || InRect(g_savePdfButton, x, y) ||
            InRect(g_backspaceButton, x, y) || InRect(g_undoButton, x, y) ||
            InRect(g_clearButton, x, y) || InRect(g_closeButton, x, y);
@@ -709,6 +711,16 @@ bool InToolbar(float x, float y)
 
 void HandleTap(float x, float y)
 {
+    for (size_t i = 0; i < g_candidateRects.size() && i < g_candidates.size(); ++i)
+    {
+        if (InRect(g_candidateRects[i], x, y))
+        {
+            InjectText(g_candidates[i]);
+            g_candidates.clear();
+            Render();
+            return;
+        }
+    }
     if (g_annotationMode)
     {
         if (InRect(g_closeButton, x, y))
