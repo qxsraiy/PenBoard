@@ -19,6 +19,9 @@
 #include <string>
 #include <cstdio>
 #include <vector>
+#include <fstream>
+#include <iterator>
+#include <sstream>
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
@@ -56,6 +59,7 @@ D2D1_RECT_F g_savePngButton = {};
 D2D1_RECT_F g_savePdfButton = {};
 constexpr UINT WM_APP_RECOGNIZED = WM_APP + 11;
 constexpr UINT WM_APP_SAVE_PNG = WM_APP + 12;
+constexpr UINT WM_APP_SAVE_PDF = WM_APP + 13;
 
 ComPtr<ID3D11Device> g_d3dDevice;
 ComPtr<ID3D11DeviceContext> g_d3dContext;
@@ -355,6 +359,142 @@ void CaptureScreen()
 
 void Render();
 
+bool SaveJpegFromBackBuffer(const std::wstring& path)
+{
+    g_hideToolbar = true;
+    Render();
+    g_hideToolbar = false;
+
+    ComPtr<ID3D11Texture2D> backBuffer;
+    if (FAILED(g_swapChain->GetBuffer(0, IID_PPV_ARGS(&backBuffer))))
+    {
+        return false;
+    }
+    D3D11_TEXTURE2D_DESC description = {};
+    backBuffer->GetDesc(&description);
+    description.Usage = D3D11_USAGE_STAGING;
+    description.BindFlags = 0;
+    description.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    description.MiscFlags = 0;
+    ComPtr<ID3D11Texture2D> staging;
+    if (FAILED(g_d3dDevice->CreateTexture2D(&description, nullptr, &staging)))
+    {
+        return false;
+    }
+    g_d3dContext->CopyResource(staging.Get(), backBuffer.Get());
+    D3D11_MAPPED_SUBRESOURCE mapped = {};
+    if (FAILED(g_d3dContext->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
+    {
+        return false;
+    }
+
+    ComPtr<IWICImagingFactory> wic;
+    HRESULT hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&wic));
+    bool ok = false;
+    if (SUCCEEDED(hr) && wic)
+    {
+        ComPtr<IWICStream> stream;
+        ComPtr<IWICBitmapEncoder> encoder;
+        ComPtr<IWICBitmapFrameEncode> frame;
+        ComPtr<IWICBitmap> bitmap;
+        ComPtr<IWICFormatConverter> converter;
+        hr = wic->CreateStream(&stream);
+        if (SUCCEEDED(hr)) hr = stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE);
+        if (SUCCEEDED(hr)) hr = wic->CreateEncoder(GUID_ContainerFormatJpeg, nullptr, &encoder);
+        if (SUCCEEDED(hr)) hr = encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+        if (SUCCEEDED(hr)) hr = encoder->CreateNewFrame(&frame, nullptr);
+        if (SUCCEEDED(hr)) hr = frame->Initialize(nullptr);
+        if (SUCCEEDED(hr)) hr = frame->SetSize(description.Width, description.Height);
+        WICPixelFormatGUID format = GUID_WICPixelFormat24bppBGR;
+        if (SUCCEEDED(hr)) hr = frame->SetPixelFormat(&format);
+        if (SUCCEEDED(hr)) hr = wic->CreateBitmapFromMemory(
+            description.Width, description.Height, GUID_WICPixelFormat32bppBGRA,
+            mapped.RowPitch, mapped.RowPitch * description.Height,
+            static_cast<BYTE*>(mapped.pData), &bitmap);
+        if (SUCCEEDED(hr)) hr = wic->CreateFormatConverter(&converter);
+        if (SUCCEEDED(hr)) hr = converter->Initialize(
+            bitmap.Get(), GUID_WICPixelFormat24bppBGR, WICBitmapDitherTypeNone,
+            nullptr, 0.0, WICBitmapPaletteTypeCustom);
+        if (SUCCEEDED(hr)) hr = frame->WriteSource(converter.Get(), nullptr);
+        if (SUCCEEDED(hr)) hr = frame->Commit();
+        if (SUCCEEDED(hr)) hr = encoder->Commit();
+        ok = SUCCEEDED(hr);
+        Log("SaveJpeg hr=0x%08X", hr);
+    }
+    g_d3dContext->Unmap(staging.Get(), 0);
+    return ok;
+}
+
+bool SavePdf(const std::wstring& path)
+{
+    wchar_t tempPath[MAX_PATH] = {};
+    GetTempPathW(MAX_PATH, tempPath);
+    std::wstring jpegPath = std::wstring(tempPath) + L"PenBoard_annotation.jpg";
+    if (!SaveJpegFromBackBuffer(jpegPath))
+    {
+        return false;
+    }
+
+    std::ifstream jpeg(jpegPath, std::ios::binary);
+    std::vector<unsigned char> image((std::istreambuf_iterator<char>(jpeg)),
+                                     std::istreambuf_iterator<char>());
+    jpeg.close();
+    DeleteFileW(jpegPath.c_str());
+    if (image.empty())
+    {
+        return false;
+    }
+
+    int pixelWidth = g_width;
+    int pixelHeight = g_height;
+    double pageWidth = pixelWidth * 72.0 / 96.0;
+    double pageHeight = pixelHeight * 72.0 / 96.0;
+
+    std::ofstream out(path, std::ios::binary);
+    if (!out)
+    {
+        return false;
+    }
+    std::vector<long> offsets(6, 0);
+    auto writeObject = [&](int id, const std::string& body)
+    {
+        offsets[id] = static_cast<long>(out.tellp());
+        out << id << " 0 obj\n" << body << "\nendobj\n";
+    };
+
+    out << "%PDF-1.4\n%\xE2\xE3\xCF\xD3\n";
+    writeObject(1, "<< /Type /Catalog /Pages 2 0 R >>");
+    writeObject(2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+    std::ostringstream page;
+    page << "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 "
+         << pageWidth << " " << pageHeight
+         << "] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>";
+    writeObject(3, page.str());
+
+    offsets[4] = static_cast<long>(out.tellp());
+    out << "4 0 obj\n<< /Type /XObject /Subtype /Image /Width " << pixelWidth
+        << " /Height " << pixelHeight
+        << " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length "
+        << image.size() << " >>\nstream\n";
+    out.write(reinterpret_cast<const char*>(image.data()), image.size());
+    out << "\nendstream\nendobj\n";
+
+    std::ostringstream content;
+    content << "q\n" << pageWidth << " 0 0 " << pageHeight << " 0 0 cm\n/Im0 Do\nQ\n";
+    std::string contentString = content.str();
+    writeObject(5, "<< /Length " + std::to_string(contentString.size()) + " >>\nstream\n" + contentString + "endstream");
+
+    long xref = static_cast<long>(out.tellp());
+    out << "xref\n0 6\n0000000000 65535 f \n";
+    for (int i = 1; i <= 5; ++i)
+    {
+        char line[32] = {};
+        snprintf(line, sizeof(line), "%010ld 00000 n \n", offsets[i]);
+        out << line;
+    }
+    out << "trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n" << xref << "\n%%EOF\n";
+    return out.good();
+}
 std::wstring AnnotationPath(const wchar_t* extension)
 {
     wchar_t profile[MAX_PATH] = {};
@@ -608,6 +748,11 @@ LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
             PostMessageW(g_hwnd, WM_CLOSE, 0, 0);
             return 1;
         }
+        if (data->vkCode == 'P' && g_annotationMode)
+        {
+            PostMessageW(g_hwnd, WM_APP_SAVE_PDF, 0, 0);
+            return 1;
+        }
         if (data->vkCode == 'S' && g_annotationMode)
         {
             PostMessageW(g_hwnd, WM_APP_SAVE_PNG, 0, 0);
@@ -717,6 +862,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         EndPaint(hwnd, &paint);
         return 0;
     }
+    case WM_APP_SAVE_PDF:
+        SavePdf(AnnotationPath(L"pdf"));
+        PostQuitMessage(0);
+        return 0;
     case WM_APP_SAVE_PNG:
         SavePng(AnnotationPath(L"png"));
         PostQuitMessage(0);
