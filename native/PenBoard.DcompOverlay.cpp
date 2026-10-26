@@ -709,6 +709,24 @@ bool InToolbar(float x, float y)
 
 void HandleTap(float x, float y)
 {
+    if (g_annotationMode)
+    {
+        if (InRect(g_closeButton, x, y))
+        {
+            PostQuitMessage(0);
+        }
+        else if (InRect(g_savePngButton, x, y))
+        {
+            SavePng(AnnotationPath(L"png"));
+            PostQuitMessage(0);
+        }
+        else if (InRect(g_savePdfButton, x, y))
+        {
+            SavePdf(AnnotationPath(L"pdf"));
+            PostQuitMessage(0);
+        }
+        return;
+    }
     if (InRect(g_closeButton, x, y))
     {
         PostQuitMessage(0);
@@ -798,7 +816,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
     case WM_LBUTTONDOWN:
     {
         POINT point = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-        Log("WM_LBUTTONDOWN %d,%d", point.x, point.y);
+        Log("WM_LBUTTONDOWN %d,%d toolbar=%d", point.x, point.y, InToolbar((float)point.x, (float)point.y));
         if (InToolbar((float)point.x, (float)point.y))
         {
             HandleTap((float)point.x, (float)point.y);
