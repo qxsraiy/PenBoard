@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Windows;
 using PenBoard.Interop;
 using PenBoard.Services;
