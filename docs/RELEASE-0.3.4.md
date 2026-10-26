@@ -1,0 +1,30 @@
+# PenBoard 0.3.4
+
+Windows x64 / ARM64 触控笔手写工具。
+
+## 本版修复
+
+- 修复 ARM64 真实笔输入下所有按钮无反应：
+  - `WM_POINTERDOWN` 现在先判断工具栏/候选区域；
+  - 不再把按钮点击当成笔迹起点。
+- 修复 ARM64 真实笔输入下没有候选字：
+  - `WM_POINTERUP` 现在启动 900ms 识别定时器；
+  - 识别完成自动注入候选 0，候选行可点击。
+- 保留 `Esc` 强制退出、批注 PNG/PDF 保存。
+- x64 / ARM64 双架构 MSI 和便携版。
+
+## 说明
+
+- 之前 ARM64 上看到“只有笔迹、按钮无反应、无候选”，是因为 ARM64 笔输入走 `WM_POINTER*`，而按钮和识别定时器只接在 `WM_LBUTTON*` 分支。
+- 本版同时处理 `WM_POINTER*` 和鼠标消息。
+
+## SHA256
+
+```text
+ARM64 MSI: 58ABF4005A21A60A107F5212721512FE3B3D074114413A623F771A5D4FD91DA9
+ARM64 ZIP: 78B34079955B39EE92FC860A0C9C2C3AB67E3548F96C10C62D970AC1D69F3E87
+x64 MSI:   737024BC6E520F2D1CE30155A710168510726EF71F1BCAB5C21DAC6F59C111C7
+x64 ZIP:   86DEA074C58E93B1A84316CD9DB34A7D95586C848D7A76D413AABFA5C07B3587
+```
+
+源码：https://github.com/qxsraiy/PenBoard

@@ -802,6 +802,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         {
             POINT point = info.ptPixelLocation;
             ScreenToClient(hwnd, &point);
+            if (InToolbar((float)point.x, (float)point.y))
+            {
+                HandleTap((float)point.x, (float)point.y);
+                return 0;
+            }
             g_drawing = true;
             g_strokes.push_back(Stroke{});
             g_strokes.back().points.push_back(D2D1::Point2F((float)point.x, (float)point.y));
@@ -823,9 +828,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
     }
     case WM_POINTERUP:
         g_drawing = false;
+        SetTimer(hwnd, 1, 900, nullptr);
         Render();
-        return 0;
-    case WM_LBUTTONDOWN:
+        return 0;    case WM_LBUTTONDOWN:
     {
         POINT point = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         Log("WM_LBUTTONDOWN %d,%d toolbar=%d", point.x, point.y, InToolbar((float)point.x, (float)point.y));
