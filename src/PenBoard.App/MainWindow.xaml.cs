@@ -46,6 +46,7 @@ public partial class MainWindow : Window, IDisposable
     private OverlayMode _mode = OverlayMode.Text;
     private bool _isOpen;
     private bool _opening;
+    private DateTime _ignoreStrokesUntil;
     private bool _targetSupportsText;
     private bool _savePromptVisible;
     private bool _formatClosesAfterSave;
@@ -186,6 +187,7 @@ public partial class MainWindow : Window, IDisposable
             {
                 try
                 {
+                    await Task.Delay(220);
                     _screenshot = _screenCapture.CapturePrimaryScreen();
                 }
                 catch (Exception ex)
@@ -201,6 +203,7 @@ public partial class MainWindow : Window, IDisposable
                 _touchInterceptor.CloseTouchKeyboard();
             }
             ShowOverlay();
+            _ignoreStrokesUntil = DateTime.UtcNow.AddMilliseconds(350);
             if (_mode == OverlayMode.Text)
             {
                 _touchInterceptor.CloseTouchKeyboard();
@@ -760,6 +763,22 @@ public partial class MainWindow : Window, IDisposable
 
     private void InkCanvas_StrokeCollected(object sender, InkCanvasStrokeCollectedEventArgs e)
     {
+        if (DateTime.UtcNow < _ignoreStrokesUntil)
+        {
+            InkCanvas.Strokes.Remove(e.Stroke);
+            return;
+        }
+        var guardPoints = e.Stroke.StylusPoints;
+        for (var i = 1; i < guardPoints.Count; i++)
+        {
+            var dx = guardPoints[i].X - guardPoints[i - 1].X;
+            var dy = guardPoints[i].Y - guardPoints[i - 1].Y;
+            if (dx * dx + dy * dy > 250 * 250)
+            {
+                InkCanvas.Strokes.Remove(e.Stroke);
+                return;
+            }
+        }
         _undoStack.Push(e.Stroke);
         if (_mode != OverlayMode.Text)
         {
@@ -974,6 +993,7 @@ public partial class MainWindow : Window, IDisposable
         _mode = OverlayMode.Annotation;
         UpdateModeUi();
         ShowOverlay();
+        _ignoreStrokesUntil = DateTime.UtcNow.AddMilliseconds(350);
     }
 
     private async Task SwitchToInputAsync()

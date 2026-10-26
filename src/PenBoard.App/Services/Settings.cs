@@ -8,8 +8,8 @@ public sealed class Settings
 {
     public string InkColorHex { get; set; } = "#FF111111";
     public double InkWidth { get; set; } = 4;
-    public int RecognitionDelayMs { get; set; } = 800;
-    public int CandidateDelayMs { get; set; } = 1500;
+    public int RecognitionDelayMs { get; set; } = 1600;
+    public int CandidateDelayMs { get; set; } = 2000;
     public bool AutoSavePng { get; set; } = true;
     public bool AutoSavePdf { get; set; } = true;
     public double PdfDpi { get; set; } = 144;
