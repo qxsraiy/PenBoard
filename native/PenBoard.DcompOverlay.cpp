@@ -451,7 +451,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             g_drawing = true;
             g_strokes.push_back(Stroke{});
             g_strokes.back().points.push_back(D2D1::Point2F((float)point.x, (float)point.y));
-            SetCapture(hwnd);
             Render();
         }
         return 0;
@@ -470,7 +469,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
     }
     case WM_POINTERUP:
         g_drawing = false;
-        ReleaseCapture();
         Render();
         return 0;
     case WM_LBUTTONDOWN:
@@ -480,7 +478,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         g_drawing = true;
         g_strokes.push_back(Stroke{});
         g_strokes.back().points.push_back(D2D1::Point2F((float)point.x, (float)point.y));
-        SetCapture(hwnd);
         Render();
         return 0;
     }
@@ -493,10 +490,10 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         return 0;
     case WM_LBUTTONUP:
         g_drawing = false;
-        ReleaseCapture();
         Render();
         return 0;
     case WM_TIMER:
+        Log("WM_TIMER recognize strokes=%zu", g_strokes.size());
         KillTimer(hwnd, 1);
         RecognizeAsync();
         return 0;
