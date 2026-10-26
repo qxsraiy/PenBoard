@@ -33,6 +33,7 @@ int g_width = 0;
 int g_height = 0;
 bool g_drawing = false;
 bool g_running = true;
+HHOOK g_keyboardHook = nullptr;
 bool g_textMode = true;
 std::wstring g_language = L"zh";
 std::vector<std::wstring> g_candidates;
@@ -437,6 +438,19 @@ void HandleTap(float x, float y)
         Render();
     }
 }
+LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode >= 0 && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN))
+    {
+        auto* data = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+        if (data->vkCode == VK_ESCAPE)
+        {
+            PostMessageW(g_hwnd, WM_CLOSE, 0, 0);
+            return 1;
+        }
+    }
+    return CallNextHookEx(g_keyboardHook, nCode, wParam, lParam);
+}
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
@@ -475,12 +489,18 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
     {
         POINT point = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         Log("WM_LBUTTONDOWN %d,%d", point.x, point.y);
+        if (InToolbar((float)point.x, (float)point.y))
+        {
+            HandleTap((float)point.x, (float)point.y);
+            return 0;
+        }
         g_drawing = true;
         g_strokes.push_back(Stroke{});
         g_strokes.back().points.push_back(D2D1::Point2F((float)point.x, (float)point.y));
         return 0;
     }
     case WM_MOUSEMOVE:
+        Log("WM_MOUSEMOVE %d,%d", GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         if (g_drawing)
         {
             AddPoint((float)GET_X_LPARAM(lParam), (float)GET_Y_LPARAM(lParam));
@@ -488,10 +508,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         }
         return 0;
     case WM_LBUTTONUP:
+        Log("WM_LBUTTONUP %d,%d", GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         g_drawing = false;
+        SetTimer(hwnd, 1, 900, nullptr);
         Render();
-        return 0;
-    case WM_TIMER:
+        return 0;    case WM_TIMER:
         Log("WM_TIMER recognize strokes=%zu", g_strokes.size());
         KillTimer(hwnd, 1);
         RecognizeAsync();
@@ -531,6 +552,9 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         EndPaint(hwnd, &paint);
         return 0;
     }
+    case WM_CLOSE:
+        PostQuitMessage(0);
+        return 0;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -573,6 +597,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     ShowWindow(g_hwnd, SW_SHOWNOACTIVATE);
     SetWindowPos(g_hwnd, HWND_TOPMOST, 0, 0, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     Render();
+    g_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, GetModuleHandleW(nullptr), 0);
+    Log("Keyboard hook=%p", g_keyboardHook);
 
     MSG message = {};
     while (GetMessageW(&message, nullptr, 0, 0) > 0)
