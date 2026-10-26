@@ -425,6 +425,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         {
             POINT point = info.ptPixelLocation;
             ScreenToClient(hwnd, &point);
+            if (InToolbar((float)point.x, (float)point.y))
+            {
+                HandleTap((float)point.x, (float)point.y);
+                return 0;
+            }
             g_drawing = true;
             g_strokes.push_back(Stroke{});
             g_strokes.back().points.push_back(D2D1::Point2F((float)point.x, (float)point.y));
@@ -447,19 +452,34 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
     }
     case WM_POINTERUP:
     {
+        POINTER_INFO info = {};
+        if (GetPointerInfo(GET_POINTERID_WPARAM(wParam), &info))
+        {
+            POINT point = info.ptPixelLocation;
+            ScreenToClient(hwnd, &point);
+            if (InToolbar((float)point.x, (float)point.y))
+            {
+                g_drawing = false;
+                ReleaseCapture();
+                HandleTap((float)point.x, (float)point.y);
+                return 0;
+            }
+        }
         g_drawing = false;
         ReleaseCapture();
+        if (g_textMode)
+        {
+            SetTimer(hwnd, 1, 900, nullptr);
+        }
         Render();
         return 0;
     }
     case WM_LBUTTONDOWN:
     {
         POINT point = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-        if (point.x >= g_closeButton.left && point.x <= g_closeButton.right &&
-            point.y >= g_closeButton.top && point.y <= g_closeButton.bottom)
+        if (InToolbar((float)point.x, (float)point.y))
         {
-            g_running = false;
-            PostQuitMessage(0);
+            HandleTap((float)point.x, (float)point.y);
             return 0;
         }
         g_drawing = true;
@@ -481,6 +501,27 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
     {
         g_drawing = false;
         ReleaseCapture();
+        if (g_textMode)
+        {
+            SetTimer(hwnd, 1, 900, nullptr);
+        }
+        Render();
+        return 0;
+    }
+    case WM_TIMER:
+    {
+        KillTimer(hwnd, 1);
+        RecognizeAsync();
+        return 0;
+    }
+    case WM_APP_RECOGNIZED:
+    {
+        auto candidates = reinterpret_cast<std::vector<std::wstring>*>(lParam);
+        if (candidates)
+        {
+            g_candidates = *candidates;
+            delete candidates;
+        }
         Render();
         return 0;
     }
@@ -502,17 +543,21 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         else if (wParam == VK_DELETE || wParam == 'C')
         {
             g_strokes.clear();
+            g_candidates.clear();
             Render();
         }
         return 0;
     }
+    case WM_CLOSE:
+        g_running = false;
+        PostQuitMessage(0);
+        return 0;
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
     }
     return DefWindowProcW(hwnd, message, wParam, lParam);
 }
-
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
