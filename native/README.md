@@ -22,6 +22,13 @@ Working Set: 33.5 MB
 Private:     13 MB
 ```
 
+## Current blocker
+
+The layered window is visible and `WindowFromPoint` hits it, but Windows does
+not deliver `WM_POINTER*` or `WM_LBUTTON*` to it. A `WH_MOUSE_LL` hook reports
+success but the callback is not receiving synthetic/pen input in this test
+session. Input routing must be solved before recognition can be verified.
+
 ## Current gaps
 
 - candidate hit-testing/injection needs verification;

@@ -48,6 +48,10 @@ D2D1_RECT_F g_undoButton = {};
 D2D1_RECT_F g_clearButton = {};
 
 constexpr UINT WM_APP_RECOGNIZED = WM_APP + 1;
+constexpr UINT WM_APP_MOUSE = WM_APP + 2;
+HHOOK g_mouseHook = nullptr;
+HHOOK g_keyboardHook = nullptr;
+bool g_mouseDrawing = false;
 
 void NativeLog(const char* format, ...)
 {
@@ -455,6 +459,33 @@ void HandleTap(float x, float y)
     }
 }
 
+LRESULT CALLBACK MouseHookProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode >= 0 && g_hwnd)
+    {
+        auto* data = reinterpret_cast<MSLLHOOKSTRUCT*>(lParam);
+        if (wParam == WM_MOUSEMOVE || wParam == WM_LBUTTONDOWN || wParam == WM_LBUTTONUP)
+        {
+            PostMessageW(g_hwnd, WM_APP_MOUSE, wParam, MAKELPARAM(data->pt.x, data->pt.y));
+            return 1;
+        }
+    }
+    return CallNextHookEx(g_mouseHook, nCode, wParam, lParam);
+}
+
+LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam)
+{
+    if (nCode >= 0 && g_hwnd && (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN))
+    {
+        auto* data = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+        if (data->vkCode == VK_ESCAPE)
+        {
+            PostMessageW(g_hwnd, WM_CLOSE, 0, 0);
+            return 1;
+        }
+    }
+    return CallNextHookEx(g_keyboardHook, nCode, wParam, lParam);
+}
 LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
@@ -637,6 +668,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     NativeLog("ShowWindow visible=%d rect=%d,%d size=%dx%d", IsWindowVisible(hwnd), 0, 0, g_width, g_height);
     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     Render();
+    g_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, MouseHookProc, GetModuleHandleW(nullptr), 0);
+    g_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, GetModuleHandleW(nullptr), 0);
+    NativeLog("Hooks mouse=%p keyboard=%p", g_mouseHook, g_keyboardHook);
 
     MSG message = {};
     while (g_running && GetMessageW(&message, nullptr, 0, 0) > 0)
@@ -645,6 +679,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         DispatchMessageW(&message);
     }
 
+    if (g_mouseHook) UnhookWindowsHookEx(g_mouseHook);
+    if (g_keyboardHook) UnhookWindowsHookEx(g_keyboardHook);
     if (g_brush) g_brush->Release();
     if (g_text) g_text->Release();
     if (g_dwrite) g_dwrite->Release();
