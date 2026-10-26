@@ -41,7 +41,9 @@ HWND g_hwnd;
 int g_width = 0;
 int g_height = 0;
 bool g_drawing = false;
+bool g_erasing = false;
 bool g_running = true;
+ULONGLONG g_readyAt = 0;
 bool g_annotationMode = false;
 bool g_hideToolbar = false;
 ComPtr<ID2D1Bitmap1> g_backgroundBitmap;
@@ -58,6 +60,15 @@ D2D1_RECT_F g_clearButton = {};
 D2D1_RECT_F g_closeButton = {};
 D2D1_RECT_F g_savePngButton = {};
 D2D1_RECT_F g_savePdfButton = {};
+D2D1_RECT_F g_penButton = {};
+D2D1_RECT_F g_eraserButton = {};
+D2D1_RECT_F g_colorButtons[3] = {};
+D2D1_RECT_F g_widthButtons[3] = {};
+int g_tool = 0;
+int g_colorIndex = 0;
+int g_widthIndex = 1;
+const D2D1_COLOR_F g_inkColors[3] = { D2D1::ColorF(0.06f,0.06f,0.06f,1), D2D1::ColorF(0.90f,0.22f,0.21f,1), D2D1::ColorF(0.12f,0.45f,0.85f,1) };
+const float g_inkWidths[3] = { 2.0f, 4.0f, 7.0f };
 constexpr UINT WM_APP_RECOGNIZED = WM_APP + 11;
 constexpr UINT WM_APP_SAVE_PNG = WM_APP + 12;
 constexpr UINT WM_APP_SAVE_PDF = WM_APP + 13;
@@ -77,9 +88,10 @@ ComPtr<ID2D1SolidColorBrush> g_brush;
 ComPtr<IDWriteFactory> g_dwrite;
 ComPtr<IDWriteTextFormat> g_textFormat;
 
-struct Stroke
-{
+struct Stroke{
     std::vector<D2D1_POINT_2F> points;
+    D2D1_COLOR_F color = D2D1::ColorF(0.06f, 0.06f, 0.06f, 1);
+    float width = 4.0f;
 };
 
 std::vector<Stroke> g_strokes;
@@ -606,6 +618,14 @@ void Render()
         return;
     }
 
+    {
+        D2D1_RECT_F top = D2D1::RectF(g_width / 2.0f - 90.0f, 14.0f, g_width / 2.0f + 90.0f, 54.0f);
+        g_brush->SetColor(D2D1::ColorF(0.08f, 0.08f, 0.08f, 0.90f));
+        g_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(top, 10, 10), g_brush.Get());
+        g_brush->SetColor(D2D1::ColorF(1, 1, 1, 1));
+        DrawLabel(g_textMode ? L"输入模式" : L"批注模式", top, true);
+    }
+
     // Candidate row.
     if (g_textMode && !g_candidates.empty())
     {
@@ -621,8 +641,8 @@ void Render()
         }
     }
 
-    D2D1_RECT_F bar = D2D1::RectF(g_width / 2.0f - 340.0f, g_height - 90.0f,
-                                  g_width / 2.0f + 340.0f, g_height - 20.0f);
+    D2D1_RECT_F bar = D2D1::RectF(g_width / 2.0f - 650.0f, g_height - 90.0f,
+                                  g_width / 2.0f + 650.0f, g_height - 20.0f);
     g_brush->SetColor(D2D1::ColorF(0.08f, 0.08f, 0.08f, 0.94f));
     g_d2dContext->FillRoundedRectangle(D2D1::RoundedRect(bar, 14, 14), g_brush.Get());
 
@@ -634,37 +654,55 @@ void Render()
         DrawLabel(label, rect, true);
     };
 
+    float tx = bar.left + 12.0f;
+    float ty = bar.top + 12.0f;
+    float th = bar.bottom - bar.top - 24.0f;
+    g_penButton = D2D1::RectF(tx, ty, tx + 58.0f, ty + th); tx += 66.0f;
+    button(g_penButton, L"笔", D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f));
+    g_eraserButton = D2D1::RectF(tx, ty, tx + 58.0f, ty + th); tx += 66.0f;
+    button(g_eraserButton, L"擦", D2D1::ColorF(0.18f, 0.18f, 0.18f, 1.0f));
+    for (int i = 0; i < 3; ++i)
+    {
+        g_colorButtons[i] = D2D1::RectF(tx, ty, tx + 34.0f, ty + th); tx += 42.0f;
+        button(g_colorButtons[i], L"", g_inkColors[i]);
+    }
+    const wchar_t* widthLabels[3] = { L"细", L"中", L"粗" };
+    for (int i = 0; i < 3; ++i)
+    {
+        g_widthButtons[i] = D2D1::RectF(tx, ty, tx + 42.0f, ty + th); tx += 50.0f;
+        button(g_widthButtons[i], widthLabels[i], D2D1::ColorF(0.24f, 0.24f, 0.24f, 1.0f));
+    }
     if (g_annotationMode)
     {
-        float ax = bar.left + 12.0f;
+        float ax = tx;
         float ay = bar.top + 12.0f;
         float ah = bar.bottom - bar.top - 24.0f;
         g_savePngButton = D2D1::RectF(ax, ay, ax + 84.0f, ay + ah); ax += 92.0f;
         Log("Annotation size=%dx%d save=%.0f,%.0f,%.0f,%.0f", g_width, g_height, g_savePngButton.left, g_savePngButton.top, g_savePngButton.right, g_savePngButton.bottom);
-        button(g_savePngButton, L"Save PNG", D2D1::ColorF(0.12f, 0.45f, 0.85f, 1.0f));
+        button(g_savePngButton, L"存PNG", D2D1::ColorF(0.12f, 0.45f, 0.85f, 1.0f));
         g_savePdfButton = D2D1::RectF(ax, ay, ax + 84.0f, ay + ah); ax += 92.0f;
-        button(g_savePdfButton, L"Save PDF", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
+        button(g_savePdfButton, L"存PDF", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
         g_closeButton = D2D1::RectF(bar.right - 82.0f, ay, bar.right - 12.0f, ay + ah);
-        button(g_closeButton, L"Close", D2D1::ColorF(0.90f, 0.22f, 0.21f, 1.0f));
+        button(g_closeButton, L"关闭", D2D1::ColorF(0.90f, 0.22f, 0.21f, 1.0f));
         g_d2dContext->EndDraw();
         g_swapChain->Present(0, 0);
         return;
     }
-    float x = bar.left + 12.0f;
+    float x = tx;
     float y = bar.top + 12.0f;
     float h = bar.bottom - bar.top - 24.0f;
     g_recognizeButton = D2D1::RectF(x, y, x + 84.0f, y + h); x += 92.0f;
-    button(g_recognizeButton, L"Recognize", D2D1::ColorF(0.12f, 0.45f, 0.85f, 1.0f));
+    button(g_recognizeButton, L"识别", D2D1::ColorF(0.12f, 0.45f, 0.85f, 1.0f));
     g_languageButton = D2D1::RectF(x, y, x + 60.0f, y + h); x += 68.0f;
-    button(g_languageButton, g_language == L"en" ? L"EN" : L"ZH", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
+    button(g_languageButton, g_language == L"en" ? L"EN" : L"中", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
     g_backspaceButton = D2D1::RectF(x, y, x + 64.0f, y + h); x += 72.0f;
-    button(g_backspaceButton, L"Back", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
+    button(g_backspaceButton, L"退格", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
     g_undoButton = D2D1::RectF(x, y, x + 64.0f, y + h); x += 72.0f;
-    button(g_undoButton, L"Undo", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
+    button(g_undoButton, L"撤销", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
     g_clearButton = D2D1::RectF(x, y, x + 64.0f, y + h); x += 72.0f;
-    button(g_clearButton, L"Clear", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
+    button(g_clearButton, L"清空", D2D1::ColorF(0.30f, 0.30f, 0.30f, 1.0f));
     g_closeButton = D2D1::RectF(bar.right - 82.0f, y, bar.right - 12.0f, y + h);
-    button(g_closeButton, L"Close", D2D1::ColorF(0.90f, 0.22f, 0.21f, 1.0f));
+    button(g_closeButton, L"关闭", D2D1::ColorF(0.90f, 0.22f, 0.21f, 1.0f));
     HRESULT hr = g_d2dContext->EndDraw();
     if (FAILED(hr))
     {
@@ -711,6 +749,13 @@ bool InToolbar(float x, float y)
 
 void HandleTap(float x, float y)
 {
+    if (InRect(g_penButton, x, y)) { g_tool = 0; Render(); return; }
+    if (InRect(g_eraserButton, x, y)) { g_tool = 1; Render(); return; }
+    for (int i = 0; i < 3; ++i)
+    {
+        if (InRect(g_colorButtons[i], x, y)) { g_colorIndex = i; Render(); return; }
+        if (InRect(g_widthButtons[i], x, y)) { g_widthIndex = i; Render(); return; }
+    }
     for (size_t i = 0; i < g_candidateRects.size() && i < g_candidates.size(); ++i)
     {
         if (InRect(g_candidateRects[i], x, y))
@@ -809,6 +854,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
             }
             g_drawing = true;
             g_strokes.push_back(Stroke{});
+            g_strokes.back().color = g_inkColors[g_colorIndex];
+            g_strokes.back().width = g_inkWidths[g_widthIndex];
             g_strokes.back().points.push_back(D2D1::Point2F((float)point.x, (float)point.y));
             Render();
         }
@@ -841,6 +888,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         }
         g_drawing = true;
         g_strokes.push_back(Stroke{});
+            g_strokes.back().color = g_inkColors[g_colorIndex];
+            g_strokes.back().width = g_inkWidths[g_widthIndex];
         g_strokes.back().points.push_back(D2D1::Point2F((float)point.x, (float)point.y));
         return 0;
     }
@@ -929,6 +978,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
             g_annotationMode = true;
         }
     }
+    g_textMode = !g_annotationMode;
     if (argv) LocalFree(argv);
     Log("Annotation mode=%d argc=%d", g_annotationMode, argc);
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
@@ -965,6 +1015,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
     }
     ShowWindow(g_hwnd, SW_SHOWNOACTIVATE);
     SetWindowPos(g_hwnd, HWND_TOPMOST, 0, 0, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    g_readyAt = GetTickCount64() + 300;
     Render();
     g_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, GetModuleHandleW(nullptr), 0);
     Log("Keyboard hook=%p", g_keyboardHook);
