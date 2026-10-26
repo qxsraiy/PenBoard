@@ -368,7 +368,7 @@ void Render()
     {
         Log("D2D EndDraw 0x%08X", hr);
     }
-    hr = g_swapChain->Present(1, 0);
+    hr = g_swapChain->Present(0, 0);
     if (FAILED(hr))
     {
         Log("Present 0x%08X", hr);
@@ -478,7 +478,6 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
         g_drawing = true;
         g_strokes.push_back(Stroke{});
         g_strokes.back().points.push_back(D2D1::Point2F((float)point.x, (float)point.y));
-        Render();
         return 0;
     }
     case WM_MOUSEMOVE:
