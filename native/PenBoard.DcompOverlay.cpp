@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <windowsx.h>
+#include <shellapi.h>
 #include <d3d11.h>
 #include <dxgi1_3.h>
 #include <dcomp.h>
@@ -391,6 +392,7 @@ bool SavePng(const std::wstring& path)
     g_d3dContext->CopyResource(staging.Get(), backBuffer.Get());
 
     D3D11_MAPPED_SUBRESOURCE mapped = {};
+    Log("SavePng staging");
     if (FAILED(g_d3dContext->Map(staging.Get(), 0, D3D11_MAP_READ, 0, &mapped)))
     {
         return false;
@@ -419,6 +421,7 @@ bool SavePng(const std::wstring& path)
         frame->Commit();
         encoder->Commit();
         ok = true;
+        Log("SavePng ok");
     }
     g_d3dContext->Unmap(staging.Get(), 0);
     return ok;
@@ -714,6 +717,17 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lPara
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
 {
+    int argc = 0;
+    LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    for (int i = 1; i < argc; ++i)
+    {
+        if (wcscmp(argv[i], L"--annotation") == 0)
+        {
+            g_annotationMode = true;
+        }
+    }
+    if (argv) LocalFree(argv);
+    Log("Annotation mode=%d argc=%d", g_annotationMode, argc);
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     g_width = GetSystemMetrics(SM_CXSCREEN);
     g_height = GetSystemMetrics(SM_CYSCREEN);
@@ -742,6 +756,10 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, LPWSTR, int)
         return 2;
     }
 
+    if (g_annotationMode)
+    {
+        CaptureScreen();
+    }
     ShowWindow(g_hwnd, SW_SHOWNOACTIVATE);
     SetWindowPos(g_hwnd, HWND_TOPMOST, 0, 0, g_width, g_height, SWP_NOACTIVATE | SWP_SHOWWINDOW);
     Render();
